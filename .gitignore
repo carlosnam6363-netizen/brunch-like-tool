@@ -1,0 +1,21 @@
+# Byte-compiled / optimized / DLL files
+__pycache__/
+*.py[cod]
+*$py.class
+
+# Browser profile and cookies (keep session local & secure)
+brunch_profile/
+*.log
+
+# Environments
+.env
+.venv
+env/
+venv/
+ENV/
+
+# OS files
+Thumbs.db
+ehthumbs.db
+Desktop.ini
+$RECYCLE.BIN/
