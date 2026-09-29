@@ -1,7 +1,8 @@
 """
 Brunch Like Tool - CLI Runner
-명령줄(터미널)에서 브런치 특정 요일 연재글을 1분 간격으로 자동 좋아요 실행하는 도구
+명령줄(터미널) 및 GitHub Actions에서 브런치 특정 요일 연재글을 1분 간격으로 자동 좋아요 실행하는 도구
 - 셀레니움 브라우저 모드 및 쿠키 기반 순수 API 모드 지원
+- GitHub Actions ($GITHUB_STEP_SUMMARY) 마크다운 리포트 자동 생성
 """
 
 import os
@@ -67,10 +68,11 @@ def main():
         "-m",
         type=int,
         default=None,
-        help="최대 좋아요 처리할 글 수 (미지정 시 전체)"
+        help="최대 좋아요 처리할 글 수 (미지정 또는 0이면 전체)"
     )
 
     args = parser.parse_args()
+    max_count = args.max_count if (args.max_count and args.max_count > 0) else None
 
     # 쿠키 파일 읽기 처리
     cookie_str = args.cookie
@@ -80,6 +82,13 @@ def main():
 
     bot = None
     if not cookie_str:
+        # GitHub Actions 환경인지 확인
+        if os.getenv("GITHUB_ACTIONS") == "true":
+            print("\n❌ [오류] GitHub Actions 환경에서는 브라우저 창을 띄울 수 없습니다.")
+            print("👉 GitHub 저장소의 [Settings] -> [Secrets and variables] -> [Actions] 에서")
+            print("   'BRUNCH_COOKIE' Secret을 추가해주세요.\n")
+            sys.exit(1)
+
         bot = BrunchBot(browser_type=args.browser)
         if args.login:
             print("\n[안내] 브런치를 열어 로그인을 진행합니다. 브라우저에서 카카오 로그인을 완료해주세요.")
@@ -94,7 +103,7 @@ def main():
             print(f"[경고] 쿠키 세션 검증 결과: {user}")
 
     print(f"\n[1/3] '{args.day.upper()}' 요일 연재 글 목록을 불러옵니다 (정렬: {args.order})...")
-    articles = fetch_serial_articles(day=args.day, order=args.order, max_count=args.max_count)
+    articles = fetch_serial_articles(day=args.day, order=args.order, max_count=max_count)
     if not articles:
         print("[!] 해당 요일에 올라온 연재 글이 없습니다.")
         if bot:
@@ -108,12 +117,35 @@ def main():
         now = time.strftime("%H:%M:%S")
         print(f"[{now}] [{level}] {msg}")
 
+    def on_finish(success, skipped, failed):
+        # GitHub Step Summary 지원 (GitHub Actions 실행 결과 페이지에 마크다운 리포트 기록)
+        summary_path = os.getenv("GITHUB_STEP_SUMMARY")
+        if summary_path:
+            try:
+                with open(summary_path, "a", encoding="utf-8") as f:
+                    f.write(f"## ✨ 브런치 연재글 자동 좋아요 완료 리포트\n\n")
+                    f.write(f"- **대상 요일**: `{args.day.upper()}`\n")
+                    f.write(f"- **정렬 기준**: `{args.order}`\n")
+                    f.write(f"- **간격**: `{args.interval}초`\n")
+                    f.write(f"- **성공**: `{success}건` ✅\n")
+                    f.write(f"- **스킵 (이미 좋아요됨)**: `{skipped}건` ℹ️\n")
+                    f.write(f"- **실패**: `{failed}건` ❌\n\n")
+                    f.write("| # | 글 제목 | 작가 | 처리 상태 |\n")
+                    f.write("|---|---|---|---|\n")
+                    for i, art in enumerate(articles):
+                        st_name = art.get("status", "-")
+                        icon = "✅" if st_name == "좋아요 완료" else ("ℹ️" if "이미" in st_name else "⚠️")
+                        f.write(f"| {i+1} | [{art['article_title']}]({art['url']}) | {art['user_name']} | {icon} {st_name} |\n")
+            except Exception as e:
+                print(f"[Summary Write Error] {e}")
+
     scheduler = LikeScheduler(
         articles=articles,
         interval_seconds=args.interval,
         bot=bot,
         cookies=cookie_str if cookie_str else None,
-        log_callback=log_cb
+        log_callback=log_cb,
+        on_finish_callback=on_finish
     )
 
     try:
