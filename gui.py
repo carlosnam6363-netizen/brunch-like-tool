@@ -1,6 +1,7 @@
 """
 Brunch Like Tool - Desktop GUI
-브런치 특정 요일 연재 글 1분 간격 자동 좋아요 데스크톱 애플리케이션
+브런치 특정 요일 연재글 1분 간격 자동 좋아요 데스크톱 애플리케이션
+- 브라우저 자동 로그인(Selenium) 및 쿠키 직접 입력(순수 API) 모드 완벽 지원
 """
 
 import os
@@ -9,12 +10,12 @@ import time
 import webbrowser
 import threading
 import tkinter as tk
-from tkinter import ttk, messagebox, scrolledtext
+from tkinter import ttk, messagebox, scrolledtext, simpledialog
 from datetime import datetime
 
 # 로컬 모듈 로드
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-from brunch_api import fetch_serial_articles, DAY_MAP, ORDER_MAP
+from brunch_api import fetch_serial_articles, check_user_session, parse_cookie_string, DAY_MAP, ORDER_MAP
 from browser_bot import BrunchBot
 from scheduler import LikeScheduler
 
@@ -23,13 +24,14 @@ class BrunchLikeApp:
     def __init__(self, root: tk.Tk):
         self.root = root
         self.root.title("브런치 연재글 자동 좋아요 도구 (Brunch Like Tool)")
-        self.root.geometry("1020x760")
-        self.root.minsize(900, 680)
+        self.root.geometry("1040x780")
+        self.root.minsize(920, 700)
 
         # 상태 변수
         self.articles = []
         self.bot = None
         self.scheduler = None
+        self.cookie_str = ""
         self.is_paused = False
 
         self._init_styles()
@@ -42,7 +44,6 @@ class BrunchLikeApp:
         except Exception:
             pass
 
-        # 폰트 및 기본 스타일 설정
         style.configure(".", font=("Malgun Gothic", 9))
         style.configure("Header.TLabel", font=("Malgun Gothic", 15, "bold"), foreground="#1e293b")
         style.configure("SubHeader.TLabel", font=("Malgun Gothic", 9), foreground="#64748b")
@@ -71,7 +72,7 @@ class BrunchLikeApp:
 
         desc_lbl = ttk.Label(
             header_frame,
-            text="목표 URL: https://brunch.co.kr/serial/list#tue#PUBLISH_TIME (설정한 요일의 최신 연재 글을 순차적으로 좋아요)",
+            text="목표 URL: https://brunch.co.kr/serial/list#tue#PUBLISH_TIME (설정한 요일의 최신 연재 글을 순차적으로 1분 간격 좋아요)",
             style="SubHeader.TLabel"
         )
         desc_lbl.pack(anchor="w", pady=(2, 0))
@@ -80,7 +81,7 @@ class BrunchLikeApp:
         control_frame = ttk.LabelFrame(main_frame, text=" ⚙️ 실행 설정 및 로그인 ", padding=10, style="Card.TLabelframe")
         control_frame.pack(fill=tk.X, pady=(0, 10))
 
-        # 1행: 요일, 정렬, 간격, 브라우저 선택
+        # 1행: 요일, 정렬, 간격, 브라우저/모드
         row1 = ttk.Frame(control_frame)
         row1.pack(fill=tk.X, pady=(0, 8))
 
@@ -113,7 +114,7 @@ class BrunchLikeApp:
 
         ttk.Label(row1, text="좋아요 간격:").pack(side=tk.LEFT, padx=(0, 4))
         self.interval_var = tk.IntVar(value=60)
-        interval_spin = ttk.Spinbox(row1, from_=10, to=300, textvariable=self.interval_var, width=5)
+        interval_spin = ttk.Spinbox(row1, from_=5, to=300, textvariable=self.interval_var, width=5)
         interval_spin.pack(side=tk.LEFT, padx=(0, 2))
         ttk.Label(row1, text="초 (기본 1분)").pack(side=tk.LEFT, padx=(0, 15))
 
@@ -128,12 +129,15 @@ class BrunchLikeApp:
         )
         browser_combo.pack(side=tk.LEFT, padx=(0, 10))
 
-        # 2행: 주요 버튼 그룹
+        # 2행: 주요 버튼 그룹 (로그인, 쿠키입력, 목록조회, 시작, 일시정지, 중단)
         row2 = ttk.Frame(control_frame)
         row2.pack(fill=tk.X)
 
         self.btn_login = ttk.Button(row2, text="🔑 1. 카카오 로그인 브라우저 열기", command=self._open_login_window)
-        self.btn_login.pack(side=tk.LEFT, padx=(0, 8))
+        self.btn_login.pack(side=tk.LEFT, padx=(0, 6))
+
+        self.btn_cookie = ttk.Button(row2, text="🍪 쿠키 직접 입력", command=self._open_cookie_dialog)
+        self.btn_cookie.pack(side=tk.LEFT, padx=(0, 10))
 
         self.btn_fetch = ttk.Button(row2, text="📋 2. 연재 글 목록 불러오기", command=self._fetch_articles)
         self.btn_fetch.pack(side=tk.LEFT, padx=(0, 8))
@@ -142,7 +146,7 @@ class BrunchLikeApp:
         self.btn_start.pack(side=tk.LEFT, padx=(0, 8))
 
         self.btn_pause = ttk.Button(row2, text="⏸️ 일시정지", command=self._toggle_pause, state="disabled")
-        self.btn_pause.pack(side=tk.LEFT, padx=(0, 8))
+        self.btn_pause.pack(side=tk.LEFT, padx=(0, 6))
 
         self.btn_stop = ttk.Button(row2, text="⏹️ 중단", command=self._stop_like, style="Stop.TButton", state="disabled")
         self.btn_stop.pack(side=tk.LEFT)
@@ -164,7 +168,6 @@ class BrunchLikeApp:
         paned = ttk.PanedWindow(main_frame, orient=tk.VERTICAL)
         paned.pack(fill=tk.BOTH, expand=True)
 
-        # 글 목록 테이블 Frame
         table_card = ttk.LabelFrame(paned, text=" 📑 연재 글 목록 (더블클릭 시 브라우저로 글 열기) ", padding=5)
         paned.add(table_card, weight=3)
 
@@ -194,26 +197,21 @@ class BrunchLikeApp:
         tree_scroll.pack(side=tk.RIGHT, fill=tk.Y)
         self.tree.bind("<Double-1>", self._on_row_double_click)
 
-        # 로그 창 Frame
         log_card = ttk.LabelFrame(paned, text=" 📝 실시간 실행 로그 ", padding=5)
         paned.add(log_card, weight=2)
 
         self.log_text = scrolledtext.ScrolledText(log_card, height=8, font=("Consolas", 9), wrap=tk.WORD)
         self.log_text.pack(fill=tk.BOTH, expand=True)
 
-        # 로그 태그 색상
         self.log_text.tag_config("INFO", foreground="#1e293b")
         self.log_text.tag_config("SUCCESS", foreground="#16a34a", font=("Consolas", 9, "bold"))
         self.log_text.tag_config("WARN", foreground="#d97706", font=("Consolas", 9, "bold"))
         self.log_text.tag_config("ERROR", foreground="#dc2626", font=("Consolas", 9, "bold"))
 
-        # 초기 안내 로그
-        self._log("브런치 연재글 자동 좋아요 프로그램이 실행되었습니다.", "INFO")
-        self._log("1. [카카오 로그인 브라우저 열기]로 최초 1회 로그인합니다 (프로필 세션 영구 보존).", "INFO")
-        self._log("2. [연재 글 목록 불러오기] 클릭 후 [자동 좋아요 시작]을 클릭하면 1분 간격으로 실행됩니다.", "INFO")
+        self._log("브런치 연재글 자동 좋아요 프로그램이 준비되었습니다.", "INFO")
+        self._log("💡 브라우저 자동 로그인 또는 [쿠키 직접 입력] 둘 중 편한 방식을 선택하세요.", "INFO")
 
     def _log(self, msg: str, level: str = "INFO"):
-        """로그 창에 메시지 추가 (스레드 안전)"""
         now = datetime.now().strftime("%H:%M:%S")
         formatted = f"[{now}] [{level}] {msg}\n"
 
@@ -241,7 +239,6 @@ class BrunchLikeApp:
         self._log(f"설정 변경: 요일={day_code}, 정렬={order_code}", "INFO")
 
     def _open_login_window(self):
-        """로그인 브라우저 열기"""
         browser = self.browser_var.get()
         self._log(f"[{browser.upper()}] 카카오 로그인 창을 엽니다...", "INFO")
 
@@ -255,8 +252,23 @@ class BrunchLikeApp:
 
         threading.Thread(target=task, daemon=True).start()
 
+    def _open_cookie_dialog(self):
+        cookie = simpledialog.askstring(
+            "브런치 쿠키 직접 입력",
+            "브런치 로그인 쿠키 문자열을 붙여넣으세요:\n(예: b_uid=...; brunch_session=...)",
+            parent=self.root
+        )
+        if cookie:
+            self.cookie_str = cookie.strip()
+            is_ok, user = check_user_session(self.cookie_str)
+            if is_ok:
+                self._log(f"[쿠키 인증 성공] '{user}' 작가님 계정으로 확인되었습니다.", "SUCCESS")
+                messagebox.showinfo("인증 성공", f"쿠키 세션 검증 성공!\n인증 계정: {user}")
+            else:
+                self._log(f"[쿠키 인증 경고] 세션 확인 실패: {user}", "WARN")
+                messagebox.showwarning("인증 경고", f"세션 검증 실패: {user}\n쿠키를 다시 확인해주세요.")
+
     def _fetch_articles(self):
-        """글 목록 가져오기"""
         day_code = self._get_selected_day_code()
         order_code = self._get_selected_order_code()
         self._log(f"'{day_code}' 요일 ({order_code}) 연재 글 목록을 불러오는 중...", "INFO")
@@ -274,7 +286,6 @@ class BrunchLikeApp:
                 self.articles = items
 
                 def update_tree():
-                    # 기존 트리 항목 삭제
                     for row in self.tree.get_children():
                         self.tree.delete(row)
 
@@ -305,7 +316,6 @@ class BrunchLikeApp:
         threading.Thread(target=task, daemon=True).start()
 
     def _start_like(self):
-        """자동 좋아요 시작"""
         if not self.articles:
             messagebox.showwarning("안내", "먼저 [2. 연재 글 목록 불러오기]를 눌러 글 목록을 조회해주세요.")
             return
@@ -316,8 +326,11 @@ class BrunchLikeApp:
             self.interval_var.set(60)
 
         browser = self.browser_var.get()
-        if not self.bot:
-            self.bot = BrunchBot(browser_type=browser)
+        bot_instance = None
+        if not self.cookie_str:
+            if not self.bot:
+                self.bot = BrunchBot(browser_type=browser)
+            bot_instance = self.bot
 
         self.btn_start.config(state="disabled")
         self.btn_pause.config(state="normal", text="⏸️ 일시정지")
@@ -325,9 +338,10 @@ class BrunchLikeApp:
         self.btn_fetch.config(state="disabled")
 
         self.scheduler = LikeScheduler(
-            bot=self.bot,
             articles=self.articles,
             interval_seconds=interval,
+            bot=bot_instance,
+            cookies=self.cookie_str if self.cookie_str else None,
             log_callback=self._log,
             article_update_callback=self._update_article_status,
             countdown_callback=self._update_countdown,

@@ -1,0 +1,9 @@
+services:
+  brunch-like-tool:
+    build: .
+    container_name: brunch-like-tool
+    restart: unless-stopped
+    ports:
+      - "8501:8501"
+    environment:
+      - PYTHONUNBUFFERED=1
