@@ -1,13 +1,16 @@
 # Brunch Like Tool (브런치 연재글 자동 좋아요 도구)
 
+[![Open in Streamlit](https://static.streamlit.io/badges/streamlit_badge_black_white.svg)](https://share.streamlit.io/deploy?repository=carlosnam6363-netizen/brunch-like-tool&branch=main&mainModule=app.py)
+[![GitHub Pages](https://img.shields.io/badge/GitHub%20Pages-Web%20Portal-00c6be?style=flat&logo=github)](https://carlosnam6363-netizen.github.io/brunch-like-tool/)
+[![GitHub Actions](https://img.shields.io/badge/GitHub%20Actions-Auto%20Like-blue?logo=githubactions)](https://github.com/carlosnam6363-netizen/brunch-like-tool/actions/workflows/brunch_like.yml)
+
 > **"웹 브라우저에서 직관적으로 1초~30초 랜덤 간격으로 우측 상단 하트를 자동 클릭하세요!"**
+> 스마트폰, 태블릿, 다른 PC 어디서든 브라우저 주소창에 치기만 하면 접속할 수 있는 웹사이트입니다.
 
-브런치스토리(Brunch Story) 플랫폼에서 사용자가 지정한 요일에 올라온 연재 글들을 **최신순**으로 정렬하여, **1초에서 30초 사이의 자연스러운 랜덤 간격**으로 각 글의 **우측 상단 하트 버튼**을 순차적으로 눌러주는 올인원 자동화 도구입니다.
-
-- **목표 대상 URL**: `https://brunch.co.kr/serial/list#tue#PUBLISH_TIME` (화요일 연재 최신순)
-- **타겟 하트 위치**: 글 본문 상단 헤더(GNB)의 **우측 상단 하트 아이콘 (`🖤 숫자`)**
-- **대기 간격**: **1초 ~ 30초 사이 무작위 랜덤 대기** (어뷰징 및 봇 탐지 완벽 방지)
-- **어디서나 실행 가능**: **웹 대시보드 (`http://localhost:8501`)**, **GitHub Actions(깃허브 자체 실행)**, **로컬 PC GUI/CLI**
+### 🌐 즉시 접속 가능한 웹사이트 링크:
+1. **☁️ Streamlit Cloud 공식 웹앱 (추천)**: [https://share.streamlit.io/deploy?repository=carlosnam6363-netizen/brunch-like-tool&branch=main&mainModule=app.py](https://share.streamlit.io/deploy?repository=carlosnam6363-netizen/brunch-like-tool&branch=main&mainModule=app.py) *(클릭 한 번으로 24시간 상시 가동 영구 웹사이트 생성)*
+2. **📱 GitHub Pages 웹 포털**: [https://carlosnam6363-netizen.github.io/brunch-like-tool/](https://carlosnam6363-netizen.github.io/brunch-like-tool/)
+3. **⚡ 현재 실시간 터널 웹사이트**: [https://local-bearing-via-homeland.trycloudflare.com](https://local-bearing-via-homeland.trycloudflare.com)
 
 ---
 

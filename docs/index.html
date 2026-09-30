@@ -1,0 +1,264 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>브런치 연재글 자동 좋아요 웹 포털 | Brunch Like Tool</title>
+  <link rel="icon" href="data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220%22%20width=%22100%22%20height=%22100%22><text y=%22.9em%22 font-size=%2290%22>💖</text></svg>">
+  <style>
+    :root {
+      --primary: #00c6be;
+      --primary-dark: #009e98;
+      --bg: #f8fafc;
+      --card-bg: #ffffff;
+      --text: #0f172a;
+      --text-muted: #64748b;
+      --border: #e2e8f0;
+      --radius: 12px;
+      --shadow: 0 10px 25px -5px rgba(0, 0, 0, 0.05), 0 8px 10px -6px rgba(0, 0, 0, 0.02);
+    }
+    * {
+      box-sizing: border-box;
+      margin: 0;
+      padding: 0;
+      font-family: -apple-system, BlinkMacSystemFont, "Pretendard", "Segoe UI", Roboto, "Malgun Gothic", sans-serif;
+    }
+    body {
+      background-color: var(--bg);
+      color: var(--text);
+      line-height: 1.6;
+      padding: 24px 16px;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      min-height: 100vh;
+    }
+    .container {
+      max-width: 680px;
+      width: 100%;
+    }
+    header {
+      text-align: center;
+      margin-bottom: 28px;
+    }
+    .badge {
+      display: inline-block;
+      background: #e6fffa;
+      color: #0d9488;
+      font-size: 13px;
+      font-weight: 700;
+      padding: 4px 12px;
+      border-radius: 9999px;
+      margin-bottom: 12px;
+      border: 1px solid #b2f5ea;
+    }
+    h1 {
+      font-size: 26px;
+      font-weight: 800;
+      color: #0f172a;
+      margin-bottom: 8px;
+    }
+    p.subtitle {
+      font-size: 15px;
+      color: var(--text-muted);
+    }
+    .card {
+      background: var(--card-bg);
+      border-radius: var(--radius);
+      border: 1px solid var(--border);
+      padding: 24px;
+      margin-bottom: 20px;
+      box-shadow: var(--shadow);
+    }
+    .card h2 {
+      font-size: 18px;
+      font-weight: 700;
+      margin-bottom: 12px;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+    .btn {
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 10px;
+      width: 100%;
+      padding: 14px 20px;
+      font-size: 16px;
+      font-weight: 700;
+      text-align: center;
+      text-decoration: none;
+      border-radius: 10px;
+      transition: all 0.2s ease;
+      cursor: pointer;
+      border: none;
+    }
+    .btn-primary {
+      background: linear-gradient(135deg, #00c6be 0%, #00a49e 100%);
+      color: #ffffff;
+      box-shadow: 0 4px 14px rgba(0, 198, 190, 0.35);
+      margin-bottom: 12px;
+    }
+    .btn-primary:hover {
+      transform: translateY(-2px);
+      box-shadow: 0 6px 20px rgba(0, 198, 190, 0.45);
+    }
+    .btn-secondary {
+      background: #1e293b;
+      color: #ffffff;
+      margin-bottom: 12px;
+    }
+    .btn-secondary:hover {
+      background: #0f172a;
+      transform: translateY(-2px);
+    }
+    .btn-tunnel {
+      background: #ffffff;
+      color: #0284c7;
+      border: 2px solid #0284c7;
+      margin-bottom: 12px;
+    }
+    .btn-tunnel:hover {
+      background: #f0f9ff;
+    }
+    .btn-copy {
+      background: #f1f5f9;
+      color: #334155;
+      font-size: 14px;
+      padding: 10px 16px;
+      border: 1px solid #cbd5e1;
+    }
+    .btn-copy:hover {
+      background: #e2e8f0;
+    }
+    .code-box {
+      background: #0f172a;
+      color: #f8fafc;
+      padding: 12px 14px;
+      border-radius: 8px;
+      font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+      font-size: 12px;
+      overflow-x: auto;
+      margin-bottom: 12px;
+      word-break: break-all;
+    }
+    .feature-list {
+      list-style: none;
+    }
+    .feature-list li {
+      position: relative;
+      padding-left: 26px;
+      margin-bottom: 10px;
+      font-size: 14px;
+      color: #334155;
+    }
+    .feature-list li::before {
+      content: "✔";
+      position: absolute;
+      left: 0;
+      color: var(--primary);
+      font-weight: 800;
+    }
+    footer {
+      text-align: center;
+      font-size: 13px;
+      color: #94a3b8;
+      margin-top: 16px;
+      padding-bottom: 24px;
+    }
+    .toast {
+      visibility: hidden;
+      min-width: 250px;
+      background-color: #0f172a;
+      color: #fff;
+      text-align: center;
+      border-radius: 8px;
+      padding: 14px;
+      position: fixed;
+      z-index: 999;
+      bottom: 30px;
+      font-size: 14px;
+      box-shadow: 0 4px 15px rgba(0,0,0,0.2);
+    }
+    .toast.show {
+      visibility: visible;
+      animation: fadein 0.3s, fadeout 0.3s 2.2s;
+    }
+    @keyframes fadein { from { bottom: 0; opacity: 0; } to { bottom: 30px; opacity: 1; } }
+    @keyframes fadeout { from { bottom: 30px; opacity: 1; } to { bottom: 0; opacity: 0; } }
+  </style>
+</head>
+<body>
+
+  <div class="container">
+    <header>
+      <div class="badge">Brunch Story Automation</div>
+      <h1>💖 브런치 연재글 자동 좋아요</h1>
+      <p class="subtitle">언제 어디서든 스마트폰과 웹 브라우저로 실행하는 올인원 웹 포털</p>
+    </header>
+
+    <!-- 빠른 실행 카드 -->
+    <div class="card">
+      <h2>🚀 웹에서 바로 실행하기</h2>
+      <p style="font-size: 14px; color: #64748b; margin-bottom: 16px;">
+        설치 없이 스마트폰, 태블릿, 다른 PC의 브라우저에서 버튼 하나로 웹 대시보드를 열어 자동 좋아요를 실행합니다.
+      </p>
+
+      <!-- 1. Streamlit Cloud 배포 버튼 -->
+      <a class="btn btn-primary" href="https://share.streamlit.io/deploy?repository=carlosnam6363-netizen/brunch-like-tool&branch=main&mainModule=app.py" target="_blank">
+        <span>☁️ Streamlit Cloud로 1초 웹 배포 (24시간 상시 가동)</span>
+      </a>
+
+      <!-- 2. GitHub Actions 실행 버튼 -->
+      <a class="btn btn-secondary" href="https://github.com/carlosnam6363-netizen/brunch-like-tool/actions/workflows/brunch_like.yml" target="_blank">
+        <span>⚡ GitHub Actions에서 즉시 실행 (클라우드 러너)</span>
+      </a>
+
+      <!-- 3. 실시간 터널 접속 -->
+      <a class="btn btn-tunnel" href="https://local-bearing-via-homeland.trycloudflare.com" target="_blank">
+        <span>🌐 현재 가동 중인 원격 웹 대시보드 바로가기</span>
+      </a>
+    </div>
+
+    <!-- 1초 북마크릿 카드 -->
+    <div class="card">
+      <h2>🍪 1초 브런치 쿠키 복사 도구</h2>
+      <p style="font-size: 14px; color: #64748b; margin-bottom: 12px;">
+        브런치(<a href="https://brunch.co.kr" target="_blank" style="color: #00c6be;">brunch.co.kr</a>)에 로그인한 후, 아래 북마크릿 코드를 브라우저 주소창 또는 콘솔에 붙여넣으면 인증 쿠키가 즉시 클립보드에 복사됩니다:
+      </p>
+      <div class="code-box" id="bmCode">javascript:(function(){navigator.clipboard.writeText(document.cookie);alert('✅ 브런치 쿠키가 클립보드에 복사되었습니다!');})();</div>
+      <button class="btn btn-copy" onclick="copyBookmarklet()">📋 북마크릿 자바스크립트 복사</button>
+    </div>
+
+    <!-- 주요 기능 카드 -->
+    <div class="card">
+      <h2>✨ 핵심 기능 안내</h2>
+      <ul class="feature-list">
+        <li><strong>🎲 1초 ~ 30초 무작위 랜덤 간격:</strong> 일정한 주기가 아닌 무작위 시간 간격으로 지연 대기하여 어뷰징 감지를 완벽하게 방지합니다.</li>
+        <li><strong>💖 우측 상단 GNB 하트 정밀 타겟팅:</strong> 글 접속 시 화면 최상단 우측에 위치한 하트 아이콘(라이킷)을 정밀 감지하여 클릭합니다.</li>
+        <li><strong>⚡ 이미 누른 글 자동 스킵:</strong> 이미 좋아요를 누른 글은 불필요한 요청 없이 0.01초 내에 감지하여 안전하게 건너뜁니다.</li>
+        <li><strong>📅 특정 요일 최신순 전체 순회:</strong> 화요일(tue)을 비롯하여 월~일/완결작 글을 최신순(PUBLISH_TIME)으로 전체 자동 처리합니다.</li>
+      </ul>
+    </div>
+
+    <footer>
+      <p>© 2026 Brunch Like Tool. Powered by GitHub & Streamlit.</p>
+      <p style="margin-top: 4px;"><a href="https://github.com/carlosnam6363-netizen/brunch-like-tool" target="_blank" style="color: #64748b; text-decoration: underline;">GitHub Repository</a></p>
+    </footer>
+  </div>
+
+  <div id="toast" class="toast">✅ 북마크릿 코드가 클립보드에 복사되었습니다!</div>
+
+  <script>
+    function copyBookmarklet() {
+      const code = document.getElementById('bmCode').innerText;
+      navigator.clipboard.writeText(code).then(() => {
+        const toast = document.getElementById('toast');
+        toast.className = 'toast show';
+        setTimeout(() => { toast.className = toast.className.replace('show', ''); }, 2500);
+      });
+    }
+  </script>
+</body>
+</html>
