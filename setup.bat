@@ -1,33 +1,26 @@
 @echo off
+cd /d "%~dp0"
 chcp 65001 > nul
-echo ==========================================================
-echo  브런치 연재글 자동 좋아요 도구 환경 설정 (Setup)
-echo ==========================================================
+title 브런치 자동 좋아요 도구 - 환경 설정
+
+echo ====================================================
+echo  브런치 자동 좋아요 도구 - 의존성 자동 설치
+echo ====================================================
 echo.
 
-python --version >nul 2>&1
-if %errorlevel% neq 0 (
-    echo [오류] Python이 설치되어 있지 않거나 PATH에 등록되지 않았습니다.
-    echo https://www.python.org 에서 Python 3.10 이상을 설치해주세요.
-    pause
-    exit /b 1
+set PYTHON_CMD=python
+if exist ".venv\Scripts\python.exe" set PYTHON_CMD=.venv\Scripts\python.exe
+if exist "venv\Scripts\python.exe" set PYTHON_CMD=venv\Scripts\python.exe
+
+echo [*] Python 패키지를 설치합니다...
+%PYTHON_CMD% -m pip install --upgrade pip
+%PYTHON_CMD% -m pip install -r requirements.txt
+
+if errorlevel 1 (
+    echo.
+    echo [!] 설치 중 오류가 발생했습니다. 파이썬 설치 여부를 확인해주세요.
+) else (
+    echo.
+    echo [*] 모든 필수 라이브러리 설치가 완료되었습니다!
 )
-
-echo [1/3] 가상환경(.venv) 확인 및 생성...
-if not exist ".venv" (
-    python -m venv .venv
-    echo 가상환경이 생성되었습니다.
-)
-
-echo [2/3] 필수 패키지 설치...
-call .venv\Scripts\activate.bat
-pip install --upgrade pip
-pip install -r requirements.txt
-
-echo.
-echo ==========================================================
-echo [3/3] 설정 완료!
-echo  - 데스크톱 GUI 실행: run_gui.bat
-echo  - 웹 대시보드 실행: run_web.bat
-echo ==========================================================
 pause

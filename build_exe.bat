@@ -1,26 +1,26 @@
 @echo off
+cd /d "%~dp0"
 chcp 65001 > nul
-echo ==========================================================
-echo  Brunch Like Tool - 무설치 단독 실행 파일 (.exe) 빌드
-echo ==========================================================
+title 브런치 자동 좋아요 - EXE 단일 실행파일 빌드
+
+echo ====================================================
+echo  브런치 자동 좋아요 GUI 실행파일(EXE) 생성 도구
+echo ====================================================
 echo.
 
-pip show pyinstaller >nul 2>&1
-if %errorlevel% neq 0 (
-    echo [1/2] PyInstaller 설치 중...
-    pip install pyinstaller
+set PYTHON_CMD=python
+if exist ".venv\Scripts\python.exe" set PYTHON_CMD=.venv\Scripts\python.exe
+if exist "venv\Scripts\python.exe" set PYTHON_CMD=venv\Scripts\python.exe
+
+echo [*] PyInstaller 설치 확인 중...
+%PYTHON_CMD% -m pip install pyinstaller
+
+echo [*] EXE 빌드를 시작합니다...
+%PYTHON_CMD% -m PyInstaller --noconfirm --onedir --windowed --name "BrunchLikeTool" --add-data "brunch_api.py;." --add-data "browser_bot.py;." --add-data "scheduler.py;." gui.py
+
+if errorlevel 1 (
+    echo [!] 빌드 실패.
+) else (
+    echo [*] 빌드 성공! dist\BrunchLikeTool 폴더를 확인하세요.
 )
-
-echo [2/2] BrunchLikeTool.exe 단독 실행 파일 빌드 중...
-pyinstaller --noconfirm --onedir --windowed --name "BrunchLikeTool" ^
-    --add-data "brunch_api.py;." ^
-    --add-data "browser_bot.py;." ^
-    --add-data "scheduler.py;." ^
-    gui.py
-
-echo.
-echo ==========================================================
-echo 빌드가 완료되었습니다!
-echo 생성 위치: dist\BrunchLikeTool\BrunchLikeTool.exe
-echo ==========================================================
 pause
