@@ -1,15 +1,16 @@
 """
 Brunch Like Tool - Streamlit Web Dashboard
 브런치 연재글 웹 대시보드 및 자동 좋아요 제어기
-- 웹 브라우저(PC, 모바일, 태블릿) 어디서든 접속하여 사용 가능
-- 쿠키 기반 순수 HTTP API 모드 (클라우드/헤드리스 환경 100% 호환)
-- 로컬 브라우저 자동화 모드 (Selenium Chrome/Edge) 지원
+- 1초 ~ 30초 사이 랜덤 간격 좋아요 지원
+- 직관적인 단계별 UI (로그인 -> 글 조회 -> 실시간 랜덤 좋아요)
+- 브런치 우측 상단 하트 버튼 기준 클릭
 실행: streamlit run app.py
 """
 
 import os
 import sys
 import time
+import random
 import pandas as pd
 import streamlit as st
 
@@ -18,14 +19,50 @@ from brunch_api import fetch_serial_articles, check_user_session, parse_cookie_s
 from browser_bot import BrunchBot
 
 st.set_page_config(
-    page_title="브런치 연재글 자동 좋아요 (Brunch Like Tool)",
-    page_icon="✨",
+    page_title="브런치 연재글 자동 좋아요 도구",
+    page_icon="💖",
     layout="wide",
     initial_sidebar_state="expanded"
 )
 
-st.title("✨ 브런치 연재글 1분 간격 자동 좋아요 도구")
-st.caption("목표 URL: `https://brunch.co.kr/serial/list#tue#PUBLISH_TIME` | 어디서든 웹 브라우저로 접속하여 간편하게 사용 가능")
+# 커스텀 CSS 스타일링
+st.markdown("""
+<style>
+    .main-header {
+        font-size: 26px;
+        font-weight: 700;
+        color: #0f172a;
+        margin-bottom: 2px;
+    }
+    .sub-header {
+        font-size: 14px;
+        color: #64748b;
+        margin-bottom: 20px;
+    }
+    .step-card {
+        background-color: #f8fafc;
+        border: 1px solid #e2e8f0;
+        border-radius: 10px;
+        padding: 16px;
+        margin-bottom: 16px;
+    }
+    .badge-success {
+        background-color: #dcfce7;
+        color: #15803d;
+        padding: 4px 8px;
+        border-radius: 6px;
+        font-weight: 600;
+        font-size: 13px;
+    }
+</style>
+""", unsafe_allow_html=True)
+
+st.markdown('<div class="main-header">💖 브런치 연재글 자동 좋아요 도구</div>', unsafe_allow_html=True)
+st.markdown(
+    '<div class="sub-header">목표 URL: <code>https://brunch.co.kr/serial/list#tue#PUBLISH_TIME</code> '
+    '| 1초~30초 랜덤 간격으로 각 글의 <b>우측 상단 하트 버튼</b>을 순차 클릭합니다.</div>',
+    unsafe_allow_html=True
+)
 
 # 세션 상태 초기화
 if "articles" not in st.session_state:
@@ -39,11 +76,80 @@ if "bot" not in st.session_state:
 if "is_running" not in st.session_state:
     st.session_state.is_running = False
 
-# 사이드바: 설정 및 인증
+# 사이드바: 1초 북마크릿 안내 및 도움말
 with st.sidebar:
-    st.header("⚙️ 실행 설정")
+    st.header("💡 간편 쿠키 복사 도구")
+    st.markdown("""
+    **1초 북마크릿 복사**
+    브런치 사이트([brunch.co.kr](https://brunch.co.kr))에 로그인한 상태에서 아래 북마크릿을 클릭하면 쿠키가 클립보드에 자동 복사됩니다:
+    """)
+    st.code(
+        "javascript:(function(){navigator.clipboard.writeText(document.cookie);alert('✅ 브런치 쿠키가 복사되었습니다!');})();",
+        language="javascript"
+    )
+    st.caption("복사한 쿠키를 [인증 설정]의 쿠키 란에 붙여넣으시면 됩니다.")
+    st.markdown("---")
+    st.info("🎯 **우측 상단 하트 타겟팅**: 글 페이지 접속 시 상단 GNB의 하트 아이콘을 정밀 감지하여 클릭하며, 이미 눌린 글은 자동으로 건너뜁니다.")
 
-    day_options = {
+# ----------------------------------------------------
+# 1단계: 인증 설정 (로그인 / 쿠키)
+# ----------------------------------------------------
+st.markdown("### 🔑 [1단계] 로그인 및 인증")
+tab_cookie, tab_browser = st.tabs(["🍪 쿠키(Cookie) 직접 입력 (웹/모바일 어디서든 동작)", "🖥️ 로컬 브라우저 자동 로그인 (PC 전용)"])
+
+with tab_cookie:
+    col_c1, col_c2 = st.columns([3, 1])
+    with col_c1:
+        cookie_val = st.text_input(
+            "브런치 로그인 쿠키 붙여넣기",
+            value=st.session_state.cookie_str,
+            type="password",
+            placeholder="b_uid=...; brunch_session=... 또는 전체 쿠키 문자열",
+            help="브런치에 로그인된 브라우저의 쿠키를 입력하세요."
+        )
+        if cookie_val != st.session_state.cookie_str:
+            st.session_state.cookie_str = cookie_val.strip()
+
+    with col_c2:
+        st.markdown("<div style='height: 28px;'></div>", unsafe_allow_html=True)
+        if st.button("🔍 세션 확인", key="btn_check_cookie"):
+            if not st.session_state.cookie_str:
+                st.warning("쿠키를 먼저 입력해주세요.")
+            else:
+                is_ok, user_info = check_user_session(st.session_state.cookie_str)
+                if is_ok:
+                    st.session_state.auth_user = user_info
+                    st.success(f"인증 성공! [{user_info}]")
+                else:
+                    st.session_state.auth_user = None
+                    st.error(f"세션 확인 실패: {user_info}")
+
+    if st.session_state.auth_user:
+        st.success(f"✅ 현재 로그인 작가: **{st.session_state.auth_user}** 계정으로 인증되었습니다.")
+
+with tab_browser:
+    col_b1, col_b2 = st.columns([2, 2])
+    with col_b1:
+        browser_choice = st.selectbox("사용할 브라우저", ["chrome", "edge"], index=0)
+    with col_b2:
+        st.markdown("<div style='height: 28px;'></div>", unsafe_allow_html=True)
+        if st.button("🔑 카카오 로그인 브라우저 열기", key="btn_open_browser"):
+            if not st.session_state.bot:
+                st.session_state.bot = BrunchBot(browser_type=browser_choice)
+            st.session_state.bot.open_login_window()
+            st.info("브라우저 창이 열렸습니다. 카카오 계정으로 로그인을 완료해주세요 (세션 자동 저장).")
+
+st.markdown("---")
+
+# ----------------------------------------------------
+# 2단계: 대상 글 및 랜덤 간격 설정
+# ----------------------------------------------------
+st.markdown("### ⚙️ [2단계] 요일 및 대기 간격 설정")
+
+col_opt1, col_opt2, col_opt3 = st.columns([1, 1, 2])
+
+with col_opt1:
+    day_map = {
         "화요일 (tue - 기본)": "tue",
         "월요일 (mon)": "mon",
         "수요일 (wed)": "wed",
@@ -53,151 +159,94 @@ with st.sidebar:
         "일요일 (sun)": "sun",
         "완결작 (com)": "com"
     }
-    selected_day_label = st.selectbox("연재 요일 선택", list(day_options.keys()), index=0)
-    day_code = day_options[selected_day_label]
+    sel_day_label = st.selectbox("연재 요일", list(day_map.keys()), index=0)
+    day_code = day_map[sel_day_label]
 
-    order_options = {
+with col_opt2:
+    order_map = {
         "최신순 (PUBLISH_TIME - 기본)": "PUBLISH_TIME",
         "인기순 (POPULARITY)": "POPULARITY"
     }
-    selected_order_label = st.selectbox("정렬 기준", list(order_options.keys()), index=0)
-    order_code = order_options[selected_order_label]
+    sel_order_label = st.selectbox("정렬 기준", list(order_map.keys()), index=0)
+    order_code = order_map[sel_order_label]
 
-    interval_sec = st.number_input(
-        "좋아요 간격 (초)",
-        min_value=5,
-        max_value=300,
-        value=60,
-        step=5,
-        help="어뷰징 방지 및 사이트 보호를 위해 기본 60초(1분) 간격으로 실행됩니다."
+with col_opt3:
+    # 1초 ~ 30초 사이 랜덤 간격 슬라이더
+    interval_range = st.slider(
+        "🎲 좋아요 랜덤 대기 간격 (초)",
+        min_value=1,
+        max_value=60,
+        value=(1, 30),
+        step=1,
+        help="각 글에 좋아요를 누르기 전, 설정한 최소~최대 초 사이에서 무작위로 시간을 선택해 대기합니다."
     )
+    min_sec, max_sec = interval_range
+    st.caption(f"⚡ 각 글 처리 시마다 **{min_sec}초 ~ {max_sec}초 사이의 랜덤한 시간** 동안 대기합니다.")
 
-    st.markdown("---")
-    st.header("🔑 인증 방식 선택")
-
-    auth_mode = st.radio(
-        "사용할 인증 방식",
-        ["🍪 쿠키(Cookie) 입력 (웹/클라우드 어디서든 권장)", "🖥️ 로컬 브라우저 자동 로그인 (PC 전용)"],
-        index=0
-    )
-
-    browser_type = "chrome"
-    if "쿠키" in auth_mode:
-        cookie_input = st.text_area(
-            "브런치 쿠키(Cookie) 붙여넣기",
-            value=st.session_state.cookie_str,
-            placeholder="b_uid=...; brunch_session=... 또는 전체 쿠키 문자열",
-            height=100,
-            help="브런치에 로그인된 브라우저의 쿠키를 붙여넣으시면 브라우저 창 없이 순수 HTTP로 초고속 실행됩니다."
-        )
-        st.session_state.cookie_str = cookie_input.strip()
-
-        col_chk, col_clr = st.columns([2, 1])
-        with col_chk:
-            if st.button("🔍 세션 검증", use_container_width=True):
-                if not st.session_state.cookie_str:
-                    st.warning("쿠키를 먼저 입력해주세요.")
-                else:
-                    is_ok, user_or_err = check_user_session(st.session_state.cookie_str)
-                    if is_ok:
-                        st.session_state.auth_user = user_or_err
-                        st.success(f"인증 성공! [{user_or_err}] 계정 확인됨")
-                    else:
-                        st.session_state.auth_user = None
-                        st.error(f"인증 실패: {user_or_err}")
-        with col_clr:
-            if st.button("지우기", use_container_width=True):
-                st.session_state.cookie_str = ""
-                st.session_state.auth_user = None
-                st.rerun()
-
-        if st.session_state.auth_user:
-            st.info(f"👤 현재 인증된 작가: **{st.session_state.auth_user}**")
-
-        with st.expander("💡 1초 만에 쿠키 복사하는 방법"):
-            st.markdown("""
-            **방법 1: 북마크릿 (가장 추천)**
-            1. 브라우저 북마크에 아래 코드를 URL로 저장합니다:
-            ```javascript
-            javascript:(function(){navigator.clipboard.writeText(document.cookie);alert('브런치 쿠키가 클립보드에 복사되었습니다!');})();
-            ```
-            2. [brunch.co.kr](https://brunch.co.kr)에 로그인한 뒤 북마크를 클릭하면 쿠키가 복사됩니다!
-
-            **방법 2: 개발자 도구 (F12)**
-            1. `brunch.co.kr`에서 `F12` 누름 -> `Console(콘솔)` 탭 클릭
-            2. `copy(document.cookie)` 입력 후 엔터 치면 자동 복사됩니다.
-            """)
-    else:
-        browser_type = st.selectbox("브라우저 선택", ["chrome", "edge"], index=0)
-        if st.button("🔑 카카오 로그인 브라우저 열기", use_container_width=True):
-            if not st.session_state.bot:
-                st.session_state.bot = BrunchBot(browser_type=browser_type)
-            st.session_state.bot.open_login_window()
-            st.success("브라우저 창이 열렸습니다. 카카오 로그인을 진행해주세요 (세션 자동 저장).")
-
-# 메인 화면 영역
-col_action1, col_action2 = st.columns([1, 1])
-
-with col_action1:
-    if st.button("📋 1. 연재 글 목록 불러오기", use_container_width=True, type="secondary"):
-        with st.spinner(f"'{selected_day_label}' 연재 글 목록을 브런치에서 가져오는 중..."):
+# 글 목록 조회 버튼
+col_btn1, col_btn2 = st.columns([1, 1])
+with col_btn1:
+    if st.button("📋 1. 연재 글 목록 불러오기", type="secondary"):
+        with st.spinner(f"'{sel_day_label}' 연재 글 목록을 브런치에서 실시간 수집 중..."):
             items = fetch_serial_articles(day=day_code, order=order_code)
             st.session_state.articles = items
-            st.success(f"총 {len(items)}개의 연재 글을 성공적으로 가져왔습니다!")
+            st.success(f"총 {len(items)}개의 연재 글 목록을 성공적으로 불러왔습니다!")
 
-with col_action2:
-    start_btn = st.button("🚀 2. 자동 좋아요 시작 (1분 간격)", use_container_width=True, type="primary")
+with col_btn2:
+    start_auto_like = st.button("🚀 2. 랜덤 간격 자동 좋아요 시작", type="primary")
 
-# 글 목록 테이블
+# 글 목록 테이블 표시
 if st.session_state.articles:
-    st.markdown(f"### 📑 연재 글 목록 (총 {len(st.session_state.articles)}건)")
-    df_data = []
+    st.markdown(f"#### 📑 연재 글 목록 (총 {len(st.session_state.articles)}건)")
+    df_rows = []
     for idx, a in enumerate(st.session_state.articles):
-        df_data.append({
+        df_rows.append({
             "#": idx + 1,
-            "제목": a["article_title"],
-            "부제": a["article_sub_title"],
+            "글 제목": a["article_title"],
             "작가": a["user_name"],
             "매거진": a["magazine_title"],
             "발행일시": a["publish_date_str"],
-            "좋아요수": a["like_count"],
+            "현재 좋아요": a["like_count"],
             "상태": a.get("status", "대기중"),
-            "링크": a["url"]
+            "URL": a["url"]
         })
-    df = pd.DataFrame(df_data)
-    st.dataframe(df, use_container_width=True, hide_index=True)
+    st.dataframe(pd.DataFrame(df_rows), hide_index=True)
 
-# 자동 좋아요 실행 로직
-if start_btn:
+# ----------------------------------------------------
+# 3단계: 자동 좋아요 실시간 실행
+# ----------------------------------------------------
+if start_auto_like:
     if not st.session_state.articles:
         st.warning("먼저 [1. 연재 글 목록 불러오기]를 눌러 글 목록을 조회해주세요.")
     else:
-        # 인증 검증
-        use_cookie = "쿠키" in auth_mode
-        if use_cookie and not st.session_state.cookie_str:
-            st.error("사이드바에서 브런치 쿠키를 입력해주세요! (클라우드/웹에서는 쿠키 입력이 필수입니다)")
-            st.stop()
+        # 인증 검증: 쿠키 또는 브라우저
+        use_cookie = bool(st.session_state.cookie_str)
+        if not use_cookie and not st.session_state.bot:
+            # 브라우저 봇 기본 생성
+            st.session_state.bot = BrunchBot(browser_type="chrome")
 
         articles = st.session_state.articles
         total = len(articles)
 
+        st.markdown("---")
+        st.markdown("### 📊 실시간 실행 현황")
+
+        col_m1, col_m2, col_m3, col_m4 = st.columns(4)
+        m_total = col_m1.metric("총 대상 글", f"{total}건")
+        m_success = col_m2.metric("성공 💖", "0건")
+        m_skip = col_m3.metric("스킵(이미 누름) ℹ️", "0건")
+        m_fail = col_m4.metric("실패 ❌", "0건")
+
         progress_bar = st.progress(0)
-        status_box = st.empty()
+        current_status = st.empty()
         countdown_box = st.empty()
-        log_container = st.empty()
+        countdown_gauge = st.empty()
+        log_box = st.empty()
 
         logs = []
         success = 0
         skipped = 0
         failed = 0
-
-        bot = None
-        if not use_cookie:
-            if not st.session_state.bot:
-                st.session_state.bot = BrunchBot(browser_type=browser_type)
-            bot = st.session_state.bot
-
-        status_box.info(f"총 {total}개의 글에 대해 1분({interval_sec}초) 간격 좋아요 작업을 시작합니다...")
 
         for i, article in enumerate(articles):
             title = article["article_title"]
@@ -206,44 +255,54 @@ if start_btn:
             user_id = article["user_id"]
             article_no = article["article_no"]
 
-            status_box.markdown(f"**[{i + 1}/{total}] 진행 중:** `{title}` (작가: {author})")
+            current_status.info(f"[{i + 1}/{total}] **'{title}'** (작가: {author}) 페이지 접속 및 우측 상단 하트 확인 중...")
 
-            # 좋아요 수행
+            # 좋아요 수행 (우측 상단 하트 버튼 기준)
             if use_cookie:
                 res_code, msg = like_article_api(user_id, article_no, st.session_state.cookie_str)
             else:
-                res_code, msg = bot.like_article(url)
+                res_code, msg = st.session_state.bot.like_article(url)
 
             now_str = time.strftime("%H:%M:%S")
+
             if res_code == "LIKED":
                 success += 1
                 article["status"] = "좋아요 완료"
-                logs.append(f"[{now_str}] ✅ [성공] '{title}' 좋아요를 눌렀습니다.")
+                logs.append(f"[{now_str}] 💖 [성공] '{title}' ({author}) 우측 상단 하트 클릭 완료")
             elif res_code == "ALREADY_LIKED":
                 skipped += 1
                 article["status"] = "이미 좋아요됨"
-                logs.append(f"[{now_str}] ℹ️ [스킵] '{title}' 이미 좋아요가 되어 있습니다.")
+                logs.append(f"[{now_str}] ℹ️ [스킵] '{title}' ({author}) 이미 하트가 눌러져 있습니다")
             elif res_code == "NOT_LOGGED_IN":
                 failed += 1
                 article["status"] = "로그인 필요"
-                logs.append(f"[{now_str}] ❌ [오류] {msg}")
-                st.error("로그인이 만료되었거나 올바르지 않습니다. 인증을 다시 진행해주세요.")
+                logs.append(f"[{now_str}] ❌ [오류] 로그인 세션이 유효하지 않습니다: {msg}")
+                st.error("로그인이 필요합니다. [1단계]에서 카카오 로그인 또는 쿠키 입력을 진행해주세요.")
                 break
             else:
                 failed += 1
                 article["status"] = "오류"
                 logs.append(f"[{now_str}] ⚠️ [실패] '{title}': {msg}")
 
+            # 메트릭 및 진행바 업데이트
+            m_success.metric("성공 💖", f"{success}건")
+            m_skip.metric("스킵(이미 누름) ℹ️", f"{skipped}건")
+            m_fail.metric("실패 ❌", f"{failed}건")
             progress_bar.progress((i + 1) / total)
-            log_container.code("\n".join(reversed(logs[-12:])), language="text")
+            log_box.code("\n".join(reversed(logs[-10:])), language="text")
 
-            # 1분 대기 (마지막 글 제외)
+            # 마지막 글이 아니라면 1초 ~ 30초 사이 무작위 지연 대기
             if i < total - 1:
-                for rem in range(interval_sec, 0, -1):
-                    countdown_box.markdown(f"⏳ **다음 글 좋아요까지 남은 시간:** `{rem}초`")
+                wait_time = random.randint(min_sec, max_sec)
+                for rem in range(wait_time, 0, -1):
+                    countdown_box.markdown(
+                        f"⏳ **다음 글까지 랜덤 대기 중:** `{rem}초` 남음 (선택된 대기 시간: **{wait_time}초** / 범위: {min_sec}~{max_sec}초)"
+                    )
+                    countdown_gauge.progress(rem / wait_time)
                     time.sleep(1)
                 countdown_box.empty()
+                countdown_gauge.empty()
 
-        status_box.empty()
+        current_status.empty()
         st.balloons()
-        st.success(f"🎉 모든 연재 글 처리가 완료되었습니다! (성공: {success}건, 스킵: {skipped}건, 실패: {failed}건)")
+        st.success(f"🎉 모든 작업이 완료되었습니다! (성공: {success}건, 스킵: {skipped}건, 오류: {failed}건)")

@@ -1,112 +1,64 @@
 # Brunch Like Tool (브런치 연재글 자동 좋아요 도구)
 
-> **"GitHub 웹사이트 자체에서 버튼 클릭 한 번으로 실행하거나, 매주 정해진 시간에 자동 스케줄로 실행하세요! (PC를 켜둘 필요가 없습니다)"**
+> **"웹 브라우저에서 직관적으로 1초~30초 랜덤 간격으로 우측 상단 하트를 자동 클릭하세요!"**
 
-브런치스토리(Brunch Story) 플랫폼에서 사용자가 지정한 요일에 올라온 연재 글들을 **최신순**으로 정렬하여 **1분 간격**으로 순차적으로 '좋아요(라이킷)'를 눌러주는 올인원 자동화 도구입니다.
+브런치스토리(Brunch Story) 플랫폼에서 사용자가 지정한 요일에 올라온 연재 글들을 **최신순**으로 정렬하여, **1초에서 30초 사이의 자연스러운 랜덤 간격**으로 각 글의 **우측 상단 하트 버튼**을 순차적으로 눌러주는 올인원 자동화 도구입니다.
 
 - **목표 대상 URL**: `https://brunch.co.kr/serial/list#tue#PUBLISH_TIME` (화요일 연재 최신순)
-- **어디서나 실행 가능**: **GitHub Actions(깃허브 자체 실행)**, **GitHub Codespaces**, **웹 클라우드 대시보드**, **로컬 PC(GUI/CLI)** 모두 지원
+- **타겟 하트 위치**: 글 본문 상단 헤더(GNB)의 **우측 상단 하트 아이콘 (`🖤 숫자`)**
+- **대기 간격**: **1초 ~ 30초 사이 무작위 랜덤 대기** (어뷰징 및 봇 탐지 완벽 방지)
+- **어디서나 실행 가능**: **웹 대시보드 (`http://localhost:8501`)**, **GitHub Actions(깃허브 자체 실행)**, **로컬 PC GUI/CLI**
 
 ---
 
-## ⚡ 1. 깃허브(GitHub) 자체에서 바로 사용하는 방법 (가장 추천!)
+## 🌐 1. 웹사이트(웹 브라우저)에서 직관적으로 직접 실행하기 (가장 추천!)
 
-컴퓨터에 아무것도 설치할 필요 없이, **GitHub 웹사이트나 깃허브 모바일 앱**에서 직접 실행할 수 있습니다. PC를 꺼두어도 깃허브 클라우드 서버가 알아서 실행합니다.
+웹 브라우저 화면에서 직관적인 3단계 안내를 보며 버튼 클릭으로 직접 조작할 수 있습니다.
+
+### 접속 주소: `http://localhost:8501`
+*(이미 웹 서버가 가동 중이므로 브라우저에서 바로 접속하시면 됩니다. 나중에 다시 켤 때는 `run_web.bat` 더블클릭)*
+
+### 📱 직관적인 3단계 사용 흐름:
+1. **[1단계] 로그인 및 인증**:
+   - **쿠키 직접 입력**: 브런치 쿠키를 입력하고 `[🔍 세션 확인]` 클릭
+   - 또는 **로컬 브라우저 자동 로그인**: `[🔑 카카오 로그인 브라우저 열기]`를 눌러 1회 로그인 (세션 영구 보존)
+2. **[2단계] 요일 및 랜덤 간격 설정**:
+   - 연재 요일: **화요일(tue)** 기본 선택 (월~일, 완결작 변경 가능)
+   - 정렬: **최신순(PUBLISH_TIME)** 기본 선택
+   - 대기 간격: **🎲 1초 ~ 30초 사이 랜덤 슬라이더** (원하는 범위로 자유 조절)
+   - **`[📋 1. 연재 글 목록 불러오기]`** 클릭 ➡️ 해당 요일의 모든 연재 글이 테이블로 즉시 표시됨
+3. **[3단계] 자동 좋아요 실행**:
+   - **`[🚀 2. 랜덤 간격 자동 좋아요 시작]`** 클릭!
+   - 실시간 메트릭(총 글 수, 성공, 스킵, 실패)과 함께 다음 글까지 **1~30초 랜덤 카운트다운 게이지**가 실시간으로 움직이며, 각 글의 **우측 상단 하트 버튼**을 자동으로 클릭합니다.
+
+---
+
+## ⚡ 2. GitHub Actions로 웹에서 실행하기 (무설치, PC 안 켜도 됨)
+
+GitHub 웹사이트([github.com](https://github.com)) 안에서 버튼 하나로 실행하거나 매주 정기 스케줄로 자동 실행할 수 있습니다.
 
 ### 1단계: 브런치 쿠키를 GitHub Secret에 1회 등록
-1. 브런치 사이트에서 본인의 로그인 쿠키를 복사합니다.  
-   *(가장 쉬운 방법: 본 저장소의 `bookmarklet.js` 북마크릿을 클릭하거나, 브런치에서 F12 콘솔에 `copy(document.cookie)` 입력)*
-2. 본 GitHub 저장소 상단 메뉴의 **`Settings`** (설정) 클릭
-3. 좌측 사이드바에서 **`Secrets and variables`** ➡️ **`Actions`** 클릭
-4. **`New repository secret`** 버튼 클릭:
+1. 브런치 사이트([brunch.co.kr](https://brunch.co.kr))에 로그인한 상태에서 콘솔(`F12` ➡️ Console)에 `copy(document.cookie)` 입력 후 엔터 쳐서 쿠키 복사
+2. 저장소의 **`Settings`** ➡️ **`Secrets and variables`** ➡️ **`Actions`** ➡️ **`New repository secret`**
    - **Name**: `BRUNCH_COOKIE`
-   - **Secret**: 복사한 브런치 쿠키 문자열 붙여넣기
-5. **`Add secret`** 클릭하여 저장!
+   - **Secret**: 복사한 쿠키 붙여넣기 ➡️ `Add secret`
+
+### 2단계: 깃허브 웹에서 원클릭 실행
+1. 저장소 상단의 **`Actions`** 탭 ➡️ **`Brunch Auto Like`** 클릭
+2. 우측의 **`Run workflow`** 드롭다운 클릭:
+   - 최소 대기: `1`초
+   - 최대 대기: `30`초 (1초~30초 사이 랜덤 실행)
+3. **`Run workflow`** 버튼 클릭 ➡️ 깃허브 클라우드가 백그라운드에서 1~30초 랜덤 간격으로 좋아요 처리 후 마크다운 리포트 기록!
 
 ---
 
-### 2단계: 깃허브에서 버튼 눌러 즉시 실행 (수동 실행)
-1. 저장소 상단 메뉴의 **`Actions`** 탭을 클릭합니다.
-2. 좌측 목록에서 **`Brunch Auto Like (브런치 연재글 자동 좋아요)`** 를 클릭합니다.
-3. 우측의 **`Run workflow`** 드롭다운 버튼을 클릭합니다:
-   - **연재 요일**: `tue` (화요일, 기본값)
-   - **정렬 기준**: `PUBLISH_TIME` (최신순, 기본값)
-   - **좋아요 간격**: `60` (초 단위 = 1분)
-   - **최대 처리 글 수**: `0` (0이면 해당 요일 전체 글 처리)
-4. 녹색 **`Run workflow`** 버튼을 누르면 깃허브 서버가 즉시 1분 간격으로 좋아요를 누르기 시작합니다!
-5. 실행이 끝나면 Actions 상세 페이지에 **어떤 글들에 좋아요가 성공했는지 예쁜 마크다운 표 리포트**가 자동으로 기록됩니다.
+## 💻 3. 데스크톱 GUI 및 CLI 실행
 
----
-
-### 3단계: 정기 자동 스케줄 실행 (크론 지원)
-- 저장소의 [`.github/workflows/brunch_like.yml`](.github/workflows/brunch_like.yml) 파일에 기본적으로 **매주 화요일 오전 09:00 (한국 시간)** 자동 실행 스케줄(`cron: '0 0 * * 2'`)이 내장되어 있습니다.
-- 쿠키만 Secret에 넣어두시면 매주 화요일 아침마다 컴퓨터를 켜지 않아도 알아서 최신 화요 연재글에 1분 간격으로 좋아요를 눌러줍니다!
-
----
-
-## ☁️ 2. GitHub Codespaces로 브라우저 안에서 실행하기
-
-1. 본 저장소 상단의 초록색 **`Code`** 버튼 클릭 ➡️ **`Codespaces`** 탭 선택
-2. **`Create codespace on main`** 클릭
-3. 웹 브라우저 안에서 클라우드 VS Code가 30초 만에 열리며 환경 설정이 자동으로 완료됩니다.
-4. 터미널에서 다음 명령어를 입력하여 웹 대시보드나 CLI를 바로 사용할 수 있습니다:
-   ```bash
-   streamlit run app.py
-   ```
-   *(포트 8501이 자동 포워딩되어 새 브라우저 창에서 웹 대시보드가 열립니다)*
-
----
-
-## 🌐 3. Streamlit Cloud 또는 개인 서버(Docker)로 웹 배포
-
-- **Streamlit Community Cloud (무료 호스팅)**:
-  1. [share.streamlit.io](https://share.streamlit.io)에 접속하여 GitHub 로그인
-  2. `New app` ➡️ 본 저장소 선택 ➡️ Main file path: `app.py` ➡️ `Deploy!`
-  3. 스마트폰이나 외부 PC에서 생성된 URL로 언제든지 접속하여 사용!
-- **Docker 컨테이너 (개인 서버 / NAS)**:
+- **데스크톱 GUI 창 실행**: `run_gui.bat` 더블클릭 (1초~30초 랜덤 간격 스핀박스 제공)
+- **터미널 CLI 실행**:
   ```bash
-  docker compose up -d
+  python cli.py --day tue --order PUBLISH_TIME --min-interval 1 --max-interval 30
   ```
-
----
-
-## 💻 4. GitHub에서 다운로드하여 내 컴퓨터(로컬)에서 실행하기
-
-### 🪟 Windows 환경
-1. 저장소를 다운로드(ZIP 압축 해제)하거나 `git clone`:
-   ```bash
-   git clone https://github.com/carlosnam6363-netizen/brunch-like-tool.git
-   cd brunch-like-tool
-   ```
-2. **`setup.bat`** 더블클릭 (가상환경 및 필수 패키지 원클릭 자동 설치)
-3. 원하는 방식으로 실행:
-   - **데스크톱 GUI 창**: `run_gui.bat` 더블클릭
-   - **웹 대시보드**: `run_web.bat` 더블클릭
-   - **터미널 CLI**: `python cli.py --day tue --order PUBLISH_TIME --interval 60`
-   - **무설치 .exe 빌드**: `build_exe.bat` 실행 시 `dist/BrunchLikeTool.exe` 생성
-
-### 🍎 macOS / 🐧 Linux 환경
-```bash
-git clone https://github.com/carlosnam6363-netizen/brunch-like-tool.git
-cd brunch-like-tool
-chmod +x setup.sh run_web.sh run_gui.sh
-./setup.sh
-
-# 실행
-./run_web.sh     # 웹 대시보드
-./run_gui.sh     # 데스크톱 GUI
-```
-
----
-
-## 🍪 1초 만에 브런치 쿠키(Cookie) 복사하는 방법
-
-### 🌟 북마크릿 (Bookmarklet)
-1. 브라우저 북마크(즐겨찾기)를 추가하고, 주소(URL) 란에 아래 코드를 등록합니다:
-   ```javascript
-   javascript:(function(){navigator.clipboard.writeText(document.cookie);alert('✅ 브런치 쿠키가 클립보드에 복사되었습니다!\n\nGitHub Secrets 또는 웹 대시보드에 붙여넣으세요.');})();
-   ```
-2. [brunch.co.kr](https://brunch.co.kr)에 로그인한 뒤 북마크를 누르면 쿠키가 복사됩니다!
 
 ---
 
@@ -114,33 +66,15 @@ chmod +x setup.sh run_web.sh run_gui.sh
 
 ```
 brunch-like-tool/
-├── .github/
-│   └── workflows/
-│       └── brunch_like.yml     # ⚡ [GitHub Actions] 깃허브 웹에서 원클릭/스케줄 자동 실행
-├── .devcontainer/
-│   └── devcontainer.json       # ☁️ [GitHub Codespaces] 브라우저 클라우드 개발환경
-├── .streamlit/
-│   └── config.toml             # 웹 대시보드 테마 및 서버 설정
-├── brunch_api.py               # 브런치 공식 API 연동 (글 수집, CSRF 토큰, 직접 라이킷)
-├── browser_bot.py              # 셀레니움 브라우저 봇 (Chrome/Edge 지원, 세션 영구 보존)
-├── scheduler.py                # 1분 간격 스케줄러 (GitHub Actions / 브라우저 듀얼 모드)
-├── gui.py                      # 데스크톱 GUI 애플리케이션
-├── app.py                      # 반응형 Streamlit 웹 대시보드
-├── cli.py                      # GitHub Actions & 터미널용 CLI 스크립트
-├── Dockerfile                  # Docker 웹 배포 정의
-├── docker-compose.yml          # Docker Compose 원클릭 실행
-├── bookmarklet.js              # 1초 쿠키 복사용 북마크릿
-├── run_gui.bat / run_gui.sh    # 데스크톱 GUI 실행기
-├── run_web.bat / run_web.sh    # 웹 대시보드 실행기
-├── setup.bat / setup.sh        # 원클릭 환경설정 스크립트
-├── build_exe.bat               # Windows 무설치 단독 실행 파일(.exe) 빌더
-├── requirements.txt            # 파이썬 의존 패키지 목록
-└── README.md                   # 종합 사용 설명서
+├── app.py                      # 💖 [웹 대시보드] 직관적인 3단계 UI & 1~30초 랜덤 지연 실시간 모니터링
+├── browser_bot.py              # 🎯 [브라우저 봇] 우측 상단 GNB 하트 버튼 정밀 타겟팅 및 클릭
+├── scheduler.py                # 🎲 [스케줄러] 1초~30초 랜덤 대기 및 스킵/일시정지 제어
+├── brunch_api.py               # 🌐 [브런치 API] 연재글 목록 수집, CSRF 토큰 추출, 직접 라이킷
+├── gui.py                      # 🪟 [데스크톱 GUI] 윈도우 창 인터페이스 (랜덤 간격 지원)
+├── cli.py                      # ⚡ [CLI/GitHub] GitHub Actions 및 터미널 실행기
+├── .github/workflows/          # ☁️ [GitHub Actions] 1~30초 랜덤 좋아요 워크플로우
+├── bookmarklet.js              # 🍪 1초 쿠키 복사 북마크릿
+├── run_web.bat                 # 🌐 웹 대시보드 1클릭 실행기
+├── run_gui.bat                 # 🪟 GUI 1클릭 실행기
+└── requirements.txt            # 필요 패키지 목록
 ```
-
----
-
-## 🔒 보안 및 개인정보
-
-- GitHub Actions 사용 시 `BRUNCH_COOKIE`는 GitHub의 암호화된 Secret 보관소에 저장되므로, 저장소가 공개(Public) 상태여도 외부에 전혀 노출되지 않습니다.
-- 본 도구는 공식 API 목록 조회와 순수 HTTP 호출을 결합하여 가볍고 안전하게 동작합니다.

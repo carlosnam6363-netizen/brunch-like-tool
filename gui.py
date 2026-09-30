@@ -112,11 +112,15 @@ class BrunchLikeApp:
         order_combo.pack(side=tk.LEFT, padx=(0, 15))
         order_combo.bind("<<ComboboxSelected>>", self._on_setting_changed)
 
-        ttk.Label(row1, text="좋아요 간격:").pack(side=tk.LEFT, padx=(0, 4))
-        self.interval_var = tk.IntVar(value=60)
-        interval_spin = ttk.Spinbox(row1, from_=5, to=300, textvariable=self.interval_var, width=5)
-        interval_spin.pack(side=tk.LEFT, padx=(0, 2))
-        ttk.Label(row1, text="초 (기본 1분)").pack(side=tk.LEFT, padx=(0, 15))
+        ttk.Label(row1, text="좋아요 간격 (랜덤):").pack(side=tk.LEFT, padx=(0, 4))
+        self.interval_min_var = tk.IntVar(value=1)
+        spin_min = ttk.Spinbox(row1, from_=1, to=120, textvariable=self.interval_min_var, width=4)
+        spin_min.pack(side=tk.LEFT, padx=(0, 2))
+        ttk.Label(row1, text="초 ~").pack(side=tk.LEFT, padx=(0, 2))
+        self.interval_max_var = tk.IntVar(value=30)
+        spin_max = ttk.Spinbox(row1, from_=1, to=120, textvariable=self.interval_max_var, width=4)
+        spin_max.pack(side=tk.LEFT, padx=(0, 2))
+        ttk.Label(row1, text="초 사이").pack(side=tk.LEFT, padx=(0, 15))
 
         ttk.Label(row1, text="브라우저:").pack(side=tk.LEFT, padx=(0, 4))
         self.browser_var = tk.StringVar(value="chrome")
@@ -320,10 +324,8 @@ class BrunchLikeApp:
             messagebox.showwarning("안내", "먼저 [2. 연재 글 목록 불러오기]를 눌러 글 목록을 조회해주세요.")
             return
 
-        interval = self.interval_var.get()
-        if interval < 5:
-            interval = 60
-            self.interval_var.set(60)
+        min_sec = max(1, self.interval_min_var.get())
+        max_sec = max(min_sec, self.interval_max_var.get())
 
         browser = self.browser_var.get()
         bot_instance = None
@@ -339,7 +341,8 @@ class BrunchLikeApp:
 
         self.scheduler = LikeScheduler(
             articles=self.articles,
-            interval_seconds=interval,
+            interval_min=min_sec,
+            interval_max=max_sec,
             bot=bot_instance,
             cookies=self.cookie_str if self.cookie_str else None,
             log_callback=self._log,
@@ -360,10 +363,10 @@ class BrunchLikeApp:
                 pass
         self.root.after(0, cb)
 
-    def _update_countdown(self, remaining: int):
+    def _update_countdown(self, remaining: int, total_wait: int = 0):
         def cb():
             if remaining > 0:
-                self.countdown_lbl.config(text=f"⏳ 다음 글 좋아요까지: {remaining}초")
+                self.countdown_lbl.config(text=f"⏳ 다음 글까지 랜덤 대기: {remaining}초 / {total_wait}초")
             else:
                 self.countdown_lbl.config(text="")
         self.root.after(0, cb)

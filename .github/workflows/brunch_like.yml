@@ -26,10 +26,14 @@ on:
         options:
           - 'PUBLISH_TIME'
           - 'POPULARITY'
-      interval:
-        description: '좋아요 간격 (초 단위, 기본 60초 = 1분)'
+      min_interval:
+        description: '최소 대기 시간 (랜덤 초 단위, 기본: 1)'
         required: true
-        default: '60'
+        default: '1'
+      max_interval:
+        description: '최대 대기 시간 (랜덤 초 단위, 기본: 30)'
+        required: true
+        default: '30'
       max_count:
         description: '최대 처리할 글 수 (0이면 해당 요일 전체)'
         required: false
@@ -59,24 +63,27 @@ jobs:
           python -m pip install --upgrade pip
           pip install -r requirements.txt
 
-      - name: 🚀 브런치 자동 좋아요 실행
+      - name: 🚀 브런치 자동 좋아요 실행 (1초~30초 랜덤 간격)
         env:
           BRUNCH_COOKIE: ${{ secrets.BRUNCH_COOKIE }}
         run: |
           DAY="${{ github.event.inputs.day || 'tue' }}"
           ORDER="${{ github.event.inputs.order || 'PUBLISH_TIME' }}"
-          INTERVAL="${{ github.event.inputs.interval || '60' }}"
+          MIN_INT="${{ github.event.inputs.min_interval || '1' }}"
+          MAX_INT="${{ github.event.inputs.max_interval || '30' }}"
           MAX_COUNT="${{ github.event.inputs.max_count || '0' }}"
 
           echo "============================================="
           echo " 대상 요일: $DAY"
           echo " 정렬 기준: $ORDER"
-          echo " 대기 간격: ${INTERVAL}초"
+          echo " 대기 간격: ${MIN_INT}초 ~ ${MAX_INT}초 (랜덤)"
           echo " 최대 개수: $MAX_COUNT"
+          echo " 타겟 버튼: 우측 상단 하트 아이콘"
           echo "============================================="
 
           python cli.py \
             --day "$DAY" \
             --order "$ORDER" \
-            --interval "$INTERVAL" \
+            --min-interval "$MIN_INT" \
+            --max-interval "$MAX_INT" \
             --max-count "$MAX_COUNT"

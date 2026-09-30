@@ -35,11 +35,23 @@ def main():
         help="정렬 기준 (기본: PUBLISH_TIME - 최신순)"
     )
     parser.add_argument(
+        "--min-interval",
+        type=int,
+        default=1,
+        help="좋아요 사이 최소 대기 초 (랜덤 간격, 기본: 1초)"
+    )
+    parser.add_argument(
+        "--max-interval",
+        type=int,
+        default=30,
+        help="좋아요 사이 최대 대기 초 (랜덤 간격, 기본: 30초)"
+    )
+    parser.add_argument(
         "--interval",
         "-i",
         type=int,
-        default=60,
-        help="좋아요 사이 대기 간격 (초 단위, 기본: 60초)"
+        default=None,
+        help="고정 대기 간격 (초 단위, 지정 시 min/max 무시)"
     )
     parser.add_argument(
         "--cookie",
@@ -141,6 +153,8 @@ def main():
 
     scheduler = LikeScheduler(
         articles=articles,
+        interval_min=args.min_interval,
+        interval_max=args.max_interval,
         interval_seconds=args.interval,
         bot=bot,
         cookies=cookie_str if cookie_str else None,
