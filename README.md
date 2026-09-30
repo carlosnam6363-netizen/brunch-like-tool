@@ -1,14 +1,15 @@
 # Brunch Like Tool (브런치 연재글 자동 좋아요 도구)
 
+[![GitHub Pages](https://img.shields.io/badge/GitHub%20Pages-Live%20Website-00c6be?style=flat&logo=github)](https://carlosnam6363-netizen.github.io/brunch-like-tool/)
 [![Open in Streamlit](https://static.streamlit.io/badges/streamlit_badge_black_white.svg)](https://share.streamlit.io/deploy?repository=carlosnam6363-netizen/brunch-like-tool&branch=main&mainModule=app.py)
 [![GitHub Actions](https://img.shields.io/badge/GitHub%20Actions-Auto%20Like-blue?logo=githubactions)](https://github.com/carlosnam6363-netizen/brunch-like-tool/actions/workflows/brunch_like.yml)
 
 > **"웹 브라우저에서 직관적으로 1초~30초 랜덤 간격으로 우측 상단 하트를 자동 클릭하세요!"**
 > 스마트폰, 태블릿, 다른 PC 어디서든 브라우저 주소창에 치기만 하면 접속할 수 있는 웹사이트입니다.
 
-### 🌐 즉시 접속 가능한 웹사이트 링크:
-1. **☁️ Streamlit Cloud 공식 웹앱 (가장 추천)**: [https://share.streamlit.io/deploy?repository=carlosnam6363-netizen/brunch-like-tool&branch=main&mainModule=app.py](https://share.streamlit.io/deploy?repository=carlosnam6363-netizen/brunch-like-tool&branch=main&mainModule=app.py) *(클릭 한 번으로 24시간 상시 가동 영구 웹사이트 생성)*
-2. **⚡ 현재 실시간 터널 웹사이트**: [https://local-bearing-via-homeland.trycloudflare.com](https://local-bearing-via-homeland.trycloudflare.com) *(지금 바로 스마트폰 브라우저에서 접속 가능)*
+### 🌐 즉시 접속 가능한 웹사이트 주소:
+1. **📱 GitHub Pages 공식 웹 포털 (실시간 활성화)**: [https://carlosnam6363-netizen.github.io/brunch-like-tool/](https://carlosnam6363-netizen.github.io/brunch-like-tool/)
+2. **☁️ Streamlit Cloud 웹앱**: [https://share.streamlit.io/deploy?repository=carlosnam6363-netizen/brunch-like-tool&branch=main&mainModule=app.py](https://share.streamlit.io/deploy?repository=carlosnam6363-netizen/brunch-like-tool&branch=main&mainModule=app.py)
 
 ---
 
