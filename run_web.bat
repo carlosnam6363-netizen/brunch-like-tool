@@ -5,10 +5,10 @@ echo  브런치 특정 요일 연재글 자동 좋아요 웹 대시보드
 echo ====================================================
 echo.
 
-if exist ".venv\Scripts\streamlit.exe" (
-    .venv\Scripts\streamlit.exe run app.py
+if exist ".venv\Scripts\python.exe" (
+    .venv\Scripts\python.exe -m streamlit run app.py
 ) else (
-    streamlit run app.py
+    python -m streamlit run app.py
 )
 
 if %errorlevel% neq 0 (
