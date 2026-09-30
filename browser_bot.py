@@ -46,26 +46,60 @@ class BrunchBot:
             except Exception:
                 self.close()
 
+        # 크롬/엣지 비정상 종료 시 남아있을 수 있는 SingletonLock 정리
+        lock_file = os.path.join(self.profile_dir, "SingletonLock")
+        if os.path.exists(lock_file):
+            try:
+                os.remove(lock_file)
+            except Exception:
+                pass
+
         if self.browser_type == "edge":
             options = EdgeOptions()
             options.add_argument(f"--user-data-dir={self.profile_dir}")
             options.add_argument("--disable-blink-features=AutomationControlled")
             options.add_argument("--start-maximized")
+            options.add_argument("--no-sandbox")
+            options.add_argument("--disable-dev-shm-usage")
+            options.add_argument("--remote-debugging-port=0")
             if headless:
                 options.add_argument("--headless=new")
             options.add_experimental_option("excludeSwitches", ["enable-automation"])
             options.add_experimental_option("useAutomationExtension", False)
-            self.driver = webdriver.Edge(options=options)
+            try:
+                self.driver = webdriver.Edge(options=options)
+            except Exception:
+                # Edge 실패 시 기본 프로필로 재시도
+                options_fallback = EdgeOptions()
+                if headless:
+                    options_fallback.add_argument("--headless=new")
+                self.driver = webdriver.Edge(options=options_fallback)
         else:
             options = ChromeOptions()
             options.add_argument(f"--user-data-dir={self.profile_dir}")
             options.add_argument("--disable-blink-features=AutomationControlled")
             options.add_argument("--start-maximized")
+            options.add_argument("--no-sandbox")
+            options.add_argument("--disable-dev-shm-usage")
+            options.add_argument("--remote-debugging-port=0")
             if headless:
                 options.add_argument("--headless=new")
             options.add_experimental_option("excludeSwitches", ["enable-automation"])
             options.add_experimental_option("useAutomationExtension", False)
-            self.driver = webdriver.Chrome(options=options)
+            try:
+                self.driver = webdriver.Chrome(options=options)
+            except Exception:
+                # 크롬 프로필 잠김 등 실패 시 기본 옵션 또는 Edge로 안전하게 대체
+                try:
+                    options_fallback = ChromeOptions()
+                    if headless:
+                        options_fallback.add_argument("--headless=new")
+                    self.driver = webdriver.Chrome(options=options_fallback)
+                except Exception:
+                    options_edge = EdgeOptions()
+                    if headless:
+                        options_edge.add_argument("--headless=new")
+                    self.driver = webdriver.Edge(options=options_edge)
 
         # navigator.webdriver 탐지 우회
         try:
@@ -150,7 +184,8 @@ class BrunchBot:
 
     def like_article(self, url: str) -> Tuple[str, str]:
         """
-        특정 글 페이지에 접속하여 '좋아요(라이킷)' 버튼을 누릅니다.
+        특정 글 페이지에 접속하여 '우측 상단 하트(라이킷)' 버튼을 누릅니다.
+        (위치 변동 시에도 화면 상단/GNB의 하트 아이콘을 정확히 찾아 클릭)
         
         :return: (결과 코드, 메시지)
                  - 'LIKED': 좋아요 성공
@@ -164,76 +199,101 @@ class BrunchBot:
         try:
             self.driver.get(url)
             # 페이지 로딩 대기
-            time.sleep(random.uniform(2.0, 3.0))
+            time.sleep(random.uniform(1.8, 2.5))
 
-            # 본문 하단까지 부드럽게 스크롤 (자연스러운 사용자 모션)
+            # 1. 페이지 내 LIKE_DATA 전역 상태 우선 확인 (이미 좋아요 여부)
             try:
-                self.driver.execute_script(
-                    "window.scrollTo({top: document.body.scrollHeight * 0.7, behavior: 'smooth'});"
+                like_data_str = self.driver.execute_script(
+                    "return document.getElementById('LIKE_DATA')?.textContent || '';"
                 )
-                time.sleep(1.0)
-                self.driver.execute_script(
-                    "window.scrollTo({top: document.body.scrollHeight, behavior: 'smooth'});"
-                )
-                time.sleep(1.5)
+                if like_data_str and '"isLiked":true' in like_data_str.replace(" ", ""):
+                    return "ALREADY_LIKED", "이미 좋아요가 눌러진 글입니다 (LIKE_DATA 확인)."
             except Exception:
                 pass
 
-            # 라이킷 버튼 찾기
-            # 브런치의 라이킷 버튼은 class="btn_like" 이거나 aria-label="라이킷 버튼"
-            wait = WebDriverWait(self.driver, 10)
-            like_btn = None
+            heart_btn = None
+            is_already_liked = False
+
+            # 2. 우측 상단 GNB 하트 버튼 우선 탐색
+            # 브런치 상단 GNB의 하트 버튼:
+            # <button class="wrap_icon"><span class="ico_view_cover ico_likeit_like">라이킷</span><span class="text_cnt">12</span></button>
+            # (좋아요 완료 시: span class에 ico_likeit_unlike 포함)
             try:
-                like_btn = wait.until(
-                    EC.presence_of_element_located((
-                        By.CSS_SELECTOR,
-                        "button.btn_like, button[aria-label*='라이킷'], [data-tiara-action-kind='Like']"
-                    ))
+                heart_spans = self.driver.find_elements(
+                    By.CSS_SELECTOR,
+                    "span.ico_likeit_like, span.ico_likeit_unlike, .ico_likeit_like, .ico_likeit_unlike"
                 )
+                for span in heart_spans:
+                    try:
+                        btn = span.find_element(By.XPATH, "./ancestor::button")
+                        loc = btn.location
+                        # 화면 상단 영역 (y < 350) 우선 타겟팅
+                        if loc.get("y", 0) < 350:
+                            heart_btn = btn
+                            span_cls = span.get_attribute("class") or ""
+                            if "ico_likeit_unlike" in span_cls:
+                                is_already_liked = True
+                            break
+                    except Exception:
+                        continue
             except Exception:
-                # 대체 선택자
-                btns = self.driver.find_elements(By.CSS_SELECTOR, "button.btn_like, button[aria-label*='라이킷']")
-                if btns:
-                    like_btn = btns[0]
+                pass
 
-            if not like_btn:
-                return "ERROR", "라이킷(좋아요) 버튼을 찾을 수 없습니다."
+            # 3. 대체 탐색 (상단 정렬 기준)
+            if not heart_btn:
+                candidates = self.driver.find_elements(
+                    By.XPATH,
+                    "//button[.//span[contains(text(), '라이킷')] or contains(@aria-label, '라이킷') or contains(@class, 'btn_like')]"
+                )
+                if candidates:
+                    # y좌표가 가장 작은 상단 버튼 우선 선택 (우측 상단)
+                    candidates.sort(key=lambda b: (b.location.get("y", 9999), -b.location.get("x", 0)))
+                    heart_btn = candidates[0]
+                    btn_html = heart_btn.get_attribute("outerHTML") or ""
+                    custom_attr = heart_btn.get_attribute("data-tiara-custom") or ""
+                    if "ico_likeit_unlike" in btn_html or "liketype=dislike" in custom_attr or "text-[#00c6be]" in btn_html:
+                        is_already_liked = True
 
-            # 이미 좋아요 상태인지 확인
-            # 브런치 웹페이지에서는 좋아요가 눌렸을 때 data-tiara-custom="liketype=dislike"가 됩니다.
-            custom_attr = like_btn.get_attribute("data-tiara-custom") or ""
-            outer_html = like_btn.get_attribute("outerHTML") or ""
+            if not heart_btn:
+                return "ERROR", "우측 상단 하트(라이킷) 버튼을 찾을 수 없습니다."
 
-            # 이미 좋아요인지 확인: liketype=dislike 또는 클래스 active 또는 특정 하트 채움
-            if "liketype=dislike" in custom_attr or "text-[#00c6be]" in outer_html or "on" in like_btn.get_attribute("class").split():
-                return "ALREADY_LIKED", "이미 좋아요가 눌러진 글입니다 (스킵)."
+            # 이미 좋아요 상태라면 클릭 생략
+            if is_already_liked:
+                return "ALREADY_LIKED", "우측 상단 하트 확인: 이미 좋아요가 눌러진 글입니다 (스킵)."
 
-            # 버튼이 화면 중앙에 보이도록 스크롤
-            self.driver.execute_script("arguments[0].scrollIntoView({block: 'center'});", like_btn)
-            time.sleep(0.5)
+            # 하트 버튼을 화면에 가볍게 맞추기
+            try:
+                self.driver.execute_script("arguments[0].scrollIntoView({block: 'nearest'});", heart_btn)
+                time.sleep(0.3)
+            except Exception:
+                pass
 
             # 클릭 시도
             try:
-                like_btn.click()
+                heart_btn.click()
             except Exception:
-                # 일반 클릭 실패 시 JavaScript 클릭
-                self.driver.execute_script("arguments[0].click();", like_btn)
+                # JavaScript 직접 클릭
+                self.driver.execute_script("arguments[0].click();", heart_btn)
 
-            time.sleep(1.5)
+            time.sleep(1.2)
 
-            # 로그인 팝업이 떴는지 확인 (비로그인 상태일 때 모달 오픈됨)
+            # 로그인 필요 모달이 떴는지 확인
             login_modal = self.driver.find_elements(
                 By.CSS_SELECTOR, ".wrap_login_modal, .layer_login, #loginModal"
             )
             if login_modal and any(m.is_displayed() for m in login_modal):
                 return "NOT_LOGGED_IN", "로그인이 필요합니다. 먼저 카카오 로그인을 진행해주세요."
 
-            # 클릭 후 상태 변경 확인
-            new_custom = like_btn.get_attribute("data-tiara-custom") or ""
-            if "liketype=dislike" in new_custom:
-                return "LIKED", "좋아요를 성공적으로 눌렀습니다."
+            # 클릭 후 아이콘 변경 확인
+            try:
+                new_html = heart_btn.get_attribute("outerHTML") or ""
+                custom_attr = heart_btn.get_attribute("data-tiara-custom") or ""
+                if "ico_likeit_unlike" in new_html or "liketype=dislike" in custom_attr:
+                    return "LIKED", "우측 상단 하트 좋아요 성공!"
+            except Exception:
+                pass
 
-            return "LIKED", "좋아요 클릭 완료."
+            return "LIKED", "우측 상단 하트 좋아요 클릭 완료."
 
         except Exception as e:
             return "ERROR", f"실행 중 오류 발생: {str(e)}"
