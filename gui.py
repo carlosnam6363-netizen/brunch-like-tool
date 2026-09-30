@@ -522,13 +522,24 @@ class BrunchLikeApp:
         )
         self.scheduler.start()
 
-    def _update_article_progress(self, idx: int, status: str):
+    def _update_article_progress(self, idx: int, status: str, article: Optional[Dict] = None):
         def cb():
             try:
                 self.progress_bar.config(value=idx + 1)
-                if idx < len(self.pending_articles):
+                title = ""
+                if article:
+                    title = article.get("article_title", "")
+                elif idx < len(self.pending_articles):
+                    title = self.pending_articles[idx].get("article_title", "")
+
+                max_val = int(self.progress_bar.cget("maximum") or len(self.pending_articles) or 1)
+                if status == "진행중":
                     self.status_lbl.config(
-                        text=f"진행 중: [{idx + 1}/{len(self.pending_articles)}] '{self.pending_articles[idx]['article_title']}'"
+                        text=f"진행 중: [{idx + 1}/{max_val}] '{title}'"
+                    )
+                elif status == "이미 좋아요됨":
+                    self.status_lbl.config(
+                        text=f"스킵: [{idx + 1}/{max_val}] '{title}' (이전 좋아요 완료 건 ⏩)"
                     )
             except Exception:
                 pass

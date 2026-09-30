@@ -86,14 +86,15 @@ javascript:(function(){
                 const art = items[i];
                 const pageUrl = `https://brunch.co.kr/@@${art.userId}/${art.articleNo}`;
                 log(`[${i+1}/${items.length}] '${art.articleTitle}' 확인 중...`);
-                
+                let wasLiked = false;
+
                 try {
                     const pageResp = await fetch(pageUrl, { credentials: 'include' });
                     const html = await pageResp.text();
                     
                     if (html.includes('"isLiked":true')) {
                         skipped++;
-                        log(`ℹ️ [스킵] 이미 좋아요됨`);
+                        log(`ℹ️ [스킵] 이미 좋아요된 글 (즉시 다음 글로 이동)`);
                     } else {
                         const tokenMatch = html.match(/name=["']secure-token["']\s+content=["']([^"']+)["']/);
                         const token = tokenMatch ? tokenMatch[1] : '';
@@ -105,6 +106,7 @@ javascript:(function(){
                         });
                         if (likeResp.status === 200) {
                             success++;
+                            wasLiked = true;
                             log(`💖 [성공] 좋아요 완료!`);
                         } else {
                             failed++;
@@ -116,7 +118,8 @@ javascript:(function(){
                     log(`❌ [오류] ${e.message}`);
                 }
                 
-                if (i < items.length - 1 && !stopRequested) {
+                // 새로 좋아요를 누른 경우에만 랜덤 대기 (이미 누른 글은 대기 없이 즉시 진행)
+                if (wasLiked && i < items.length - 1 && !stopRequested) {
                     const wait = Math.floor(Math.random() * (maxSec - minSec + 1)) + minSec;
                     for (let r = wait; r > 0; r--) {
                         if (stopRequested) break;

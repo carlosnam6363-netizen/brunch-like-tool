@@ -165,21 +165,23 @@ class BrunchBot:
 
         try:
             self.driver.get(url)
-            time.sleep(1.5)
 
-            # 1. LIKE_DATA 전역 스크립트 상태 확인 (초고속 판단)
+            # 1. LIKE_DATA 전역 스크립트 상태 즉시 확인 (이미 좋아요된 글은 딜레이 없이 즉시 반환)
             try:
                 is_liked = self.driver.execute_script("""
                     const data = document.getElementById('LIKE_DATA')?.textContent;
                     if (data) {
                         try { return JSON.parse(data).isLiked === true; } catch(e) {}
                     }
-                    return false;
+                    return null;
                 """)
-                if is_liked:
-                    return "ALREADY_LIKED", "이미 좋아요가 눌러진 글입니다 (LIKE_DATA 확인)."
+                if is_liked is True:
+                    return "ALREADY_LIKED", "이미 좋아요가 눌러진 글입니다 (LIKE_DATA 즉시 확인)."
             except Exception:
                 pass
+
+            # 아직 좋아요 여부가 확인되지 않은 경우 버튼 렌더링을 위해 최소 대기
+            time.sleep(0.8)
 
             heart_btn = None
             is_already_liked = False

@@ -323,7 +323,7 @@ if start_auto_like:
                     skipped += 1
                     article["status"] = "이미 좋아요됨"
                     st.session_state.completed_keys.add(url)
-                    logs.append(f"[{now_str}] ℹ️ [스킵] '{title}' ({author}) 이미 하트가 눌러져 있습니다")
+                    logs.append(f"[{now_str}] ℹ️ [스킵] '{title}' ({author}) 이전에 이미 좋아요를 누른 글입니다. (즉시 다음 글로 이동)")
                 elif res_code == "NOT_LOGGED_IN":
                     failed += 1
                     article["status"] = "로그인 필요"
@@ -342,8 +342,9 @@ if start_auto_like:
                 progress_bar.progress((i + 1) / total)
                 log_box.code("\n".join(reversed(logs[-10:])), language="text")
 
-                # 마지막 글이 아니라면 1초 ~ 30초 사이 무작위 지연 대기
-                if i < total - 1:
+                # 새로 좋아요를 누른 경우(LIKED)에만 1초 ~ 30초 무작위 지연 대기
+                # 이미 좋아요가 눌러져 있던 글(ALREADY_LIKED)은 대기 없이 즉시 다음 글로 진행
+                if res_code == "LIKED" and i < total - 1:
                     wait_time = random.randint(min_sec, max_sec)
                     for rem in range(wait_time, 0, -1):
                         countdown_box.markdown(

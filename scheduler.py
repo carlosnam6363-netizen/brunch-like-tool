@@ -193,7 +193,7 @@ class LikeScheduler:
 
             self.log(f"[{idx + 1}/{total}] '{title}' ({author}) 우측 상단 하트 확인 중...", "INFO")
             if self.article_update_callback:
-                self.article_update_callback(idx, "진행중")
+                self.article_update_callback(idx, "진행중", article)
 
             try:
                 result_code, message = self._execute_like(article)
@@ -211,7 +211,7 @@ class LikeScheduler:
                 self.skipped_count += 1
                 status_str = "이미 좋아요됨"
                 article["status"] = status_str
-                self.log(f"[{idx + 1}/{total}] [스킵] '{title}' 이미 하트가 눌러져 있습니다.", "INFO")
+                self.log(f"[{idx + 1}/{total}] [스킵] '{title}' 이전에 이미 좋아요를 누른 글입니다. 별도 대기 없이 다음 글로 즉시 넘어갑니다.", "INFO")
                 if self.article_completed_callback:
                     self.article_completed_callback(article, status_str)
             elif result_code == "NOT_LOGGED_IN":
@@ -220,7 +220,7 @@ class LikeScheduler:
                 article["status"] = status_str
                 self.log(f"[{idx + 1}/{total}] [실패] 로그인이 유효하지 않습니다: {message}", "ERROR")
                 if self.article_update_callback:
-                    self.article_update_callback(idx, status_str)
+                    self.article_update_callback(idx, status_str, article)
                 break
             else:
                 self.failed_count += 1
@@ -229,10 +229,11 @@ class LikeScheduler:
                 self.log(f"[{idx + 1}/{total}] [오류] '{title}': {message}", "ERROR")
 
             if self.article_update_callback:
-                self.article_update_callback(idx, status_str)
+                self.article_update_callback(idx, status_str, article)
 
-            # 마지막 글이 아니라면 1초 ~ 30초(또는 수정된 간격) 사이 무작위 지연 대기
-            if idx < total - 1 and not self._stop_event.is_set():
+            # 새로 좋아요를 누른 경우(LIKED)에만 1초 ~ 30초(또는 수정된 간격) 사이 무작위 지연 대기
+            # 이미 좋아요를 눌렀던 글(ALREADY_LIKED)은 별도 대기 동작 없이 즉시 다음 글로 넘어감
+            if result_code == "LIKED" and idx < total - 1 and not self._stop_event.is_set():
                 self._sync_interval()
                 wait_sec = random.randint(self.interval_min, self.interval_max)
                 self.log(f"🎲 다음 글까지 {wait_sec}초 랜덤 대기 중... ({self.interval_min}~{self.interval_max}초)", "INFO")
@@ -261,6 +262,11 @@ class LikeScheduler:
 
                 if self.countdown_callback:
                     self.countdown_callback(0, wait_sec)
+            else:
+                # 이미 좋아요되었거나 스킵된 건: 카운트다운 초기화 후 즉시 다음 루프로 진입
+                if self.countdown_callback:
+                    self.countdown_callback(0, 0)
+                time.sleep(0.05)
 
         self.is_running = False
         if self._session:
