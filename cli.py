@@ -1,8 +1,9 @@
 """
 Brunch Like Tool - CLI Runner
-명령줄(터미널) 및 GitHub Actions에서 브런치 특정 요일 연재글을 1분 간격으로 자동 좋아요 실행하는 도구
+명령줄(터미널) 및 GitHub Actions에서 브런치 특정 요일 연재글을 랜덤/지정 간격으로 자동 좋아요 실행하는 도구
 - 셀레니움 브라우저 모드 및 쿠키 기반 순수 API 모드 지원
 - GitHub Actions ($GITHUB_STEP_SUMMARY) 마크다운 리포트 자동 생성
+- 우측 상단 하트 버튼 기준 타겟팅
 """
 
 import os
@@ -11,21 +12,20 @@ import time
 import argparse
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-from brunch_api import fetch_serial_articles, check_user_session, DAY_MAP, ORDER_MAP
+from brunch_api import fetch_serial_articles, check_user_session, normalize_day, normalize_order
 from browser_bot import BrunchBot
 from scheduler import LikeScheduler
 
 
 def main():
     parser = argparse.ArgumentParser(
-        description="브런치 연재글 1분 간격 자동 좋아요 도구 (Brunch Like Tool CLI)"
+        description="브런치 연재글 자동 좋아요 도구 (Brunch Like Tool CLI)"
     )
     parser.add_argument(
         "--day",
         "-d",
         default="tue",
-        choices=["mon", "tue", "wed", "thu", "fri", "sat", "sun", "com"],
-        help="요일 선택 (기본: tue - 화요일)"
+        help="요일 선택 (mon, tue, wed, thu, fri, sat, sun, com 또는 한글, 기본: tue)"
     )
     parser.add_argument(
         "--order",
@@ -51,7 +51,7 @@ def main():
         "-i",
         type=int,
         default=None,
-        help="고정 대기 간격 (초 단위, 지정 시 min/max 무시)"
+        help="고정 대기 간격 (초 단위, 지정 시 min/max 대신 고정값 사용)"
     )
     parser.add_argument(
         "--cookie",
@@ -94,7 +94,7 @@ def main():
 
     bot = None
     if not cookie_str:
-        # GitHub Actions 환경인지 확인
+        # GitHub Actions 환경인지 확인 (헤드리스 브라우저 창 불가 안내)
         if os.getenv("GITHUB_ACTIONS") == "true":
             print("\n❌ [오류] GitHub Actions 환경에서는 브라우저 창을 띄울 수 없습니다.")
             print("👉 GitHub 저장소의 [Settings] -> [Secrets and variables] -> [Actions] 에서")
@@ -114,31 +114,34 @@ def main():
         else:
             print(f"[경고] 쿠키 세션 검증 결과: {user}")
 
-    print(f"\n[1/3] '{args.day.upper()}' 요일 연재 글 목록을 불러옵니다 (정렬: {args.order})...")
-    articles = fetch_serial_articles(day=args.day, order=args.order, max_count=max_count)
+    day_code = normalize_day(args.day)
+    order_code = normalize_order(args.order)
+
+    print(f"\n[1/3] '{day_code}' 요일 연재 글 목록을 불러옵니다 (정렬: {order_code})...")
+    articles = fetch_serial_articles(day=day_code, order=order_code, max_count=max_count)
     if not articles:
         print("[!] 해당 요일에 올라온 연재 글이 없습니다.")
         if bot:
             bot.close()
         return
 
+    interval_desc = f"{args.interval}초 (고정)" if args.interval is not None else f"{args.min_interval}~{args.max_interval}초 (랜덤)"
     print(f"[2/3] 총 {len(articles)}개의 연재 글을 가져왔습니다.")
-    print(f"[3/3] 1분({args.interval}초) 간격으로 자동 좋아요를 시작합니다. (중단하려면 Ctrl+C)\n")
+    print(f"[3/3] {interval_desc} 간격으로 자동 좋아요를 시작합니다 (우측 상단 하트 기준). 중단: Ctrl+C\n")
 
     def log_cb(msg, level):
         now = time.strftime("%H:%M:%S")
         print(f"[{now}] [{level}] {msg}")
 
     def on_finish(success, skipped, failed):
-        # GitHub Step Summary 지원 (GitHub Actions 실행 결과 페이지에 마크다운 리포트 기록)
         summary_path = os.getenv("GITHUB_STEP_SUMMARY")
         if summary_path:
             try:
                 with open(summary_path, "a", encoding="utf-8") as f:
-                    f.write(f"## ✨ 브런치 연재글 자동 좋아요 완료 리포트\n\n")
-                    f.write(f"- **대상 요일**: `{args.day.upper()}`\n")
-                    f.write(f"- **정렬 기준**: `{args.order}`\n")
-                    f.write(f"- **간격**: `{args.interval}초`\n")
+                    f.write("## ✨ 브런치 연재글 자동 좋아요 완료 리포트\n\n")
+                    f.write(f"- **대상 요일**: `{day_code}`\n")
+                    f.write(f"- **정렬 기준**: `{order_code}`\n")
+                    f.write(f"- **간격**: `{interval_desc}`\n")
                     f.write(f"- **성공**: `{success}건` ✅\n")
                     f.write(f"- **스킵 (이미 좋아요됨)**: `{skipped}건` ℹ️\n")
                     f.write(f"- **실패**: `{failed}건` ❌\n\n")

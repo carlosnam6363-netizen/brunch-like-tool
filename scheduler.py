@@ -3,11 +3,13 @@ Scheduler Module
 글 목록 순회 및 랜덤 간격(1초~30초) 좋아요 처리 실행기
 - 셀레니움 브라우저 모드와 순수 HTTP API(쿠키) 모드 양방향 지원
 - 1초 ~ 30초 사이의 자연스러운 랜덤 지연 대기
+- HTTP 세션 재사용으로 네트워크 통신 성능 최적화
 """
 
 import time
 import random
 import threading
+import requests
 from typing import List, Dict, Callable, Optional, Union
 from brunch_api import like_article_api, parse_cookie_string
 
@@ -30,9 +32,9 @@ class LikeScheduler:
         :param articles: 처리할 글 정보 리스트
         :param interval_min: 최소 대기 초 (기본: 1초)
         :param interval_max: 최대 대기 초 (기본: 30초)
-        :param interval_seconds: 고정 간격 초 (전달 시 min=max로 설정)
-        :param bot: BrunchBot 인스턴스 (브라우저 모드 사용 시)
-        :param cookies: 브런치 쿠키 문자열 또는 dict (순수 API 모드 사용 시)
+        :param interval_seconds: 고정 간격 초 (전달 시 min=max 설정)
+        :param bot: BrunchBot 인스턴스 (브라우저 모드)
+        :param cookies: 브런치 쿠키 문자열 또는 dict (순수 API 모드)
         :param log_callback: 로그 출력 콜백 (message, level)
         :param article_update_callback: 글 상태 업데이트 콜백 (index, status)
         :param countdown_callback: 남은 초 콜백 (remaining_seconds, total_wait_seconds)
@@ -57,6 +59,11 @@ class LikeScheduler:
         self._stop_event = threading.Event()
         self._pause_event = threading.Event()
         self._pause_event.set()
+
+        self._session: Optional[requests.Session] = None
+        if self.cookies:
+            self._session = requests.Session()
+            self._session.cookies.update(self.cookies)
 
         self.success_count = 0
         self.skipped_count = 0
@@ -97,39 +104,45 @@ class LikeScheduler:
         self._stop_event.set()
         self._pause_event.set()
         self.is_running = False
+        if self._session:
+            try:
+                self._session.close()
+            except Exception:
+                pass
+            self._session = None
         self.log("작업 중단 요청이 접수되었습니다.", "WARN")
 
     def _execute_like(self, article: Dict) -> tuple:
-        user_id = article.get("user_id", "")
-        article_no = article.get("article_no", 0)
-        url = article.get("url", "")
-
-        # 1. 순수 HTTP API 모드 (쿠키가 제공된 경우)
+        # 1. 순수 HTTP API 모드 (쿠키 제공 시)
         if self.cookies:
-            return like_article_api(user_id, article_no, self.cookies)
+            return like_article_api(
+                article.get("user_id", ""),
+                article.get("article_no", 0),
+                self.cookies,
+                session=self._session
+            )
 
         # 2. 브라우저 봇 모드 (우측 상단 하트 버튼 클릭)
         if self.bot:
-            return self.bot.like_article(url)
+            return self.bot.like_article(article.get("url", ""))
 
         return "ERROR", "좋아요를 수행할 인증 수단(쿠키 또는 브라우저)이 없습니다."
 
     def _run_loop(self):
         total = len(self.articles)
-        mode_str = "순수 HTTP API(클라우드/웹)" if self.cookies else "셀레니움 브라우저"
+        mode_str = "순수 HTTP API(웹/클라우드)" if self.cookies else "셀레니움 브라우저"
         delay_desc = f"{self.interval_min}~{self.interval_max}초 랜덤 간격" if self.interval_min != self.interval_max else f"{self.interval_min}초 간격"
         self.log(f"[{mode_str} 모드] 총 {total}개의 글에 대해 {delay_desc} 좋아요 작업을 시작합니다.", "INFO")
 
         for idx, article in enumerate(self.articles):
             if self._stop_event.is_set():
-                self.log("사용자에 의해 작업이 중단되었습니다.", "WARN")
                 break
 
-            # 일시 정지 처리
+            # 일시 정지 대기
             while not self._pause_event.is_set():
                 if self._stop_event.is_set():
                     break
-                time.sleep(0.5)
+                time.sleep(0.3)
 
             if self._stop_event.is_set():
                 break
@@ -137,17 +150,19 @@ class LikeScheduler:
             title = article.get("article_title", "무제")
             author = article.get("user_name", "작가")
 
-            self.log(f"[{idx + 1}/{total}] '{title}' ({author}) 페이지 접속 및 우측 상단 하트 확인 중...", "INFO")
+            self.log(f"[{idx + 1}/{total}] '{title}' ({author}) 우측 상단 하트 확인 중...", "INFO")
             if self.article_update_callback:
                 self.article_update_callback(idx, "진행중")
 
-            # 좋아요 실행 (우측 상단 하트 버튼 기준)
-            result_code, message = self._execute_like(article)
+            try:
+                result_code, message = self._execute_like(article)
+            except Exception as e:
+                result_code, message = "ERROR", str(e)
 
             if result_code == "LIKED":
                 self.success_count += 1
                 status_str = "좋아요 완료"
-                self.log(f"[{idx + 1}/{total}] [성공] '{title}' 우측 상단 하트 좋아요를 눌렀습니다. 💖", "SUCCESS")
+                self.log(f"[{idx + 1}/{total}] [성공] '{title}' 우측 상단 하트 좋아요 완료 💖", "SUCCESS")
             elif result_code == "ALREADY_LIKED":
                 self.skipped_count += 1
                 status_str = "이미 좋아요됨"
@@ -167,10 +182,10 @@ class LikeScheduler:
             if self.article_update_callback:
                 self.article_update_callback(idx, status_str)
 
-            # 마지막 글이 아니라면 1초 ~ 30초 사이 랜덤 카운트다운 대기
+            # 마지막 글이 아니라면 1초 ~ 30초 사이 무작위 지연 대기
             if idx < total - 1 and not self._stop_event.is_set():
                 wait_sec = random.randint(self.interval_min, self.interval_max)
-                self.log(f"🎲 다음 글 좋아요까지 {wait_sec}초 랜덤 대기합니다... ({self.interval_min}~{self.interval_max}초 범위)", "INFO")
+                self.log(f"🎲 다음 글까지 {wait_sec}초 랜덤 대기 중... ({self.interval_min}~{self.interval_max}초)", "INFO")
 
                 for remaining in range(wait_sec, 0, -1):
                     if self._stop_event.is_set():
@@ -178,7 +193,7 @@ class LikeScheduler:
                     while not self._pause_event.is_set():
                         if self._stop_event.is_set():
                             break
-                        time.sleep(0.5)
+                        time.sleep(0.3)
 
                     if self.countdown_callback:
                         self.countdown_callback(remaining, wait_sec)
@@ -188,9 +203,16 @@ class LikeScheduler:
                     self.countdown_callback(0, wait_sec)
 
         self.is_running = False
+        if self._session:
+            try:
+                self._session.close()
+            except Exception:
+                pass
+            self._session = None
+
         summary_msg = (
             f"작업 완료! [성공: {self.success_count}건, "
-            f"스킵(기존좋아요): {self.skipped_count}건, 실패: {self.failed_count}건]"
+            f"스킵: {self.skipped_count}건, 실패: {self.failed_count}건]"
         )
         self.log(summary_msg, "SUCCESS")
 

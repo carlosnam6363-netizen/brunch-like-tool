@@ -15,7 +15,7 @@ from datetime import datetime
 
 # 로컬 모듈 로드
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-from brunch_api import fetch_serial_articles, check_user_session, parse_cookie_string, DAY_MAP, ORDER_MAP
+from brunch_api import fetch_serial_articles, check_user_session, normalize_day, normalize_order
 from browser_bot import BrunchBot
 from scheduler import LikeScheduler
 
@@ -67,12 +67,12 @@ class BrunchLikeApp:
         header_frame = ttk.Frame(main_frame)
         header_frame.pack(fill=tk.X, pady=(0, 10))
 
-        title_lbl = ttk.Label(header_frame, text="✨ 브런치 연재글 1분 간격 자동 좋아요", style="Header.TLabel")
+        title_lbl = ttk.Label(header_frame, text="✨ 브런치 연재글 자동 좋아요 도구", style="Header.TLabel")
         title_lbl.pack(anchor="w")
 
         desc_lbl = ttk.Label(
             header_frame,
-            text="목표 URL: https://brunch.co.kr/serial/list#tue#PUBLISH_TIME (설정한 요일의 최신 연재 글을 순차적으로 1분 간격 좋아요)",
+            text="목표 URL: https://brunch.co.kr/serial/list#tue#PUBLISH_TIME (우측 상단 하트 기준, 1~30초 랜덤 간격 순차 좋아요)",
             style="SubHeader.TLabel"
         )
         desc_lbl.pack(anchor="w", pady=(2, 0))
@@ -228,14 +228,12 @@ class BrunchLikeApp:
     def _get_selected_day_code(self) -> str:
         text = self.day_var.get()
         if "(" in text and ")" in text:
-            return text.split("(")[1].split(")")[0].strip()
-        return "tue"
+            raw = text.split("(")[1].split(")")[0].strip()
+            return normalize_day(raw)
+        return normalize_day(text)
 
     def _get_selected_order_code(self) -> str:
-        text = self.order_var.get()
-        if "POPULARITY" in text:
-            return "POPULARITY"
-        return "PUBLISH_TIME"
+        return normalize_order(self.order_var.get())
 
     def _on_setting_changed(self, event=None):
         day_code = self._get_selected_day_code()

@@ -4,6 +4,7 @@ Brunch Like Tool - Streamlit Web Dashboard
 - 1초 ~ 30초 사이 랜덤 간격 좋아요 지원
 - 직관적인 단계별 UI (로그인 -> 글 조회 -> 실시간 랜덤 좋아요)
 - 브런치 우측 상단 하트 버튼 기준 클릭
+- HTTP Keep-Alive 세션 재사용 및 성능 최적화
 실행: streamlit run app.py
 """
 
@@ -11,6 +12,7 @@ import os
 import sys
 import time
 import random
+import requests
 import pandas as pd
 import streamlit as st
 
@@ -25,7 +27,7 @@ st.set_page_config(
     initial_sidebar_state="expanded"
 )
 
-# 커스텀 CSS 스타일링
+# UI 커스텀 스타일링
 st.markdown("""
 <style>
     .main-header {
@@ -38,21 +40,6 @@ st.markdown("""
         font-size: 14px;
         color: #64748b;
         margin-bottom: 20px;
-    }
-    .step-card {
-        background-color: #f8fafc;
-        border: 1px solid #e2e8f0;
-        border-radius: 10px;
-        padding: 16px;
-        margin-bottom: 16px;
-    }
-    .badge-success {
-        background-color: #dcfce7;
-        color: #15803d;
-        padding: 4px 8px;
-        border-radius: 6px;
-        font-weight: 600;
-        font-size: 13px;
     }
 </style>
 """, unsafe_allow_html=True)
@@ -73,10 +60,8 @@ if "auth_user" not in st.session_state:
     st.session_state.auth_user = None
 if "bot" not in st.session_state:
     st.session_state.bot = None
-if "is_running" not in st.session_state:
-    st.session_state.is_running = False
 
-# 사이드바: 1초 북마크릿 안내 및 도움말
+# 사이드바: 북마크릿 및 동작 원리 안내
 with st.sidebar:
     st.header("💡 간편 쿠키 복사 도구")
     st.markdown("""
@@ -89,13 +74,13 @@ with st.sidebar:
     )
     st.caption("복사한 쿠키를 [인증 설정]의 쿠키 란에 붙여넣으시면 됩니다.")
     st.markdown("---")
-    st.info("🎯 **우측 상단 하트 타겟팅**: 글 페이지 접속 시 상단 GNB의 하트 아이콘을 정밀 감지하여 클릭하며, 이미 눌린 글은 자동으로 건너뜁니다.")
+    st.info("🎯 **우측 상단 하트 타겟팅**: 글 페이지 상단 GNB의 하트 아이콘을 정밀 감지하여 클릭하며, 이미 좋아요를 누른 글은 자동으로 안전하게 건너뜁니다.")
 
 # ----------------------------------------------------
-# 1단계: 인증 설정 (로그인 / 쿠키)
+# 1단계: 인증 설정 (쿠키 / 브라우저)
 # ----------------------------------------------------
 st.markdown("### 🔑 [1단계] 로그인 및 인증")
-tab_cookie, tab_browser = st.tabs(["🍪 쿠키(Cookie) 직접 입력 (웹/모바일 어디서든 동작)", "🖥️ 로컬 브라우저 자동 로그인 (PC 전용)"])
+tab_cookie, tab_browser = st.tabs(["🍪 쿠키(Cookie) 직접 입력 (웹/클라우드 어디서든 동작)", "🖥️ 로컬 브라우저 자동 로그인 (PC 전용)"])
 
 with tab_cookie:
     col_c1, col_c2 = st.columns([3, 1])
@@ -171,7 +156,6 @@ with col_opt2:
     order_code = order_map[sel_order_label]
 
 with col_opt3:
-    # 1초 ~ 30초 사이 랜덤 간격 슬라이더
     interval_range = st.slider(
         "🎲 좋아요 랜덤 대기 간격 (초)",
         min_value=1,
@@ -183,7 +167,7 @@ with col_opt3:
     min_sec, max_sec = interval_range
     st.caption(f"⚡ 각 글 처리 시마다 **{min_sec}초 ~ {max_sec}초 사이의 랜덤한 시간** 동안 대기합니다.")
 
-# 글 목록 조회 버튼
+# 글 목록 조회 & 시작 버튼
 col_btn1, col_btn2 = st.columns([1, 1])
 with col_btn1:
     if st.button("📋 1. 연재 글 목록 불러오기", type="secondary"):
@@ -198,9 +182,8 @@ with col_btn2:
 # 글 목록 테이블 표시
 if st.session_state.articles:
     st.markdown(f"#### 📑 연재 글 목록 (총 {len(st.session_state.articles)}건)")
-    df_rows = []
-    for idx, a in enumerate(st.session_state.articles):
-        df_rows.append({
+    df_rows = [
+        {
             "#": idx + 1,
             "글 제목": a["article_title"],
             "작가": a["user_name"],
@@ -209,8 +192,10 @@ if st.session_state.articles:
             "현재 좋아요": a["like_count"],
             "상태": a.get("status", "대기중"),
             "URL": a["url"]
-        })
-    st.dataframe(pd.DataFrame(df_rows), hide_index=True)
+        }
+        for idx, a in enumerate(st.session_state.articles)
+    ]
+    st.dataframe(pd.DataFrame(df_rows), hide_index=True, use_container_width=True)
 
 # ----------------------------------------------------
 # 3단계: 자동 좋아요 실시간 실행
@@ -219,10 +204,8 @@ if start_auto_like:
     if not st.session_state.articles:
         st.warning("먼저 [1. 연재 글 목록 불러오기]를 눌러 글 목록을 조회해주세요.")
     else:
-        # 인증 검증: 쿠키 또는 브라우저
         use_cookie = bool(st.session_state.cookie_str)
         if not use_cookie and not st.session_state.bot:
-            # 브라우저 봇 기본 생성
             st.session_state.bot = BrunchBot(browser_type="chrome")
 
         articles = st.session_state.articles
@@ -232,7 +215,7 @@ if start_auto_like:
         st.markdown("### 📊 실시간 실행 현황")
 
         col_m1, col_m2, col_m3, col_m4 = st.columns(4)
-        m_total = col_m1.metric("총 대상 글", f"{total}건")
+        col_m1.metric("총 대상 글", f"{total}건")
         m_success = col_m2.metric("성공 💖", "0건")
         m_skip = col_m3.metric("스킵(이미 누름) ℹ️", "0건")
         m_fail = col_m4.metric("실패 ❌", "0건")
@@ -248,61 +231,71 @@ if start_auto_like:
         skipped = 0
         failed = 0
 
-        for i, article in enumerate(articles):
-            title = article["article_title"]
-            author = article["user_name"]
-            url = article["url"]
-            user_id = article["user_id"]
-            article_no = article["article_no"]
+        # HTTP 모드 시 단일 세션 재사용
+        http_session = None
+        if use_cookie:
+            http_session = requests.Session()
+            http_session.cookies.update(parse_cookie_string(st.session_state.cookie_str))
 
-            current_status.info(f"[{i + 1}/{total}] **'{title}'** (작가: {author}) 페이지 접속 및 우측 상단 하트 확인 중...")
+        try:
+            for i, article in enumerate(articles):
+                title = article["article_title"]
+                author = article["user_name"]
+                url = article["url"]
+                user_id = article["user_id"]
+                article_no = article["article_no"]
 
-            # 좋아요 수행 (우측 상단 하트 버튼 기준)
-            if use_cookie:
-                res_code, msg = like_article_api(user_id, article_no, st.session_state.cookie_str)
-            else:
-                res_code, msg = st.session_state.bot.like_article(url)
+                current_status.info(f"[{i + 1}/{total}] **'{title}'** (작가: {author}) 페이지 접속 및 우측 상단 하트 확인 중...")
 
-            now_str = time.strftime("%H:%M:%S")
+                # 좋아요 수행 (우측 상단 하트 버튼 기준)
+                if use_cookie:
+                    res_code, msg = like_article_api(user_id, article_no, st.session_state.cookie_str, session=http_session)
+                else:
+                    res_code, msg = st.session_state.bot.like_article(url)
 
-            if res_code == "LIKED":
-                success += 1
-                article["status"] = "좋아요 완료"
-                logs.append(f"[{now_str}] 💖 [성공] '{title}' ({author}) 우측 상단 하트 클릭 완료")
-            elif res_code == "ALREADY_LIKED":
-                skipped += 1
-                article["status"] = "이미 좋아요됨"
-                logs.append(f"[{now_str}] ℹ️ [스킵] '{title}' ({author}) 이미 하트가 눌러져 있습니다")
-            elif res_code == "NOT_LOGGED_IN":
-                failed += 1
-                article["status"] = "로그인 필요"
-                logs.append(f"[{now_str}] ❌ [오류] 로그인 세션이 유효하지 않습니다: {msg}")
-                st.error("로그인이 필요합니다. [1단계]에서 카카오 로그인 또는 쿠키 입력을 진행해주세요.")
-                break
-            else:
-                failed += 1
-                article["status"] = "오류"
-                logs.append(f"[{now_str}] ⚠️ [실패] '{title}': {msg}")
+                now_str = time.strftime("%H:%M:%S")
 
-            # 메트릭 및 진행바 업데이트
-            m_success.metric("성공 💖", f"{success}건")
-            m_skip.metric("스킵(이미 누름) ℹ️", f"{skipped}건")
-            m_fail.metric("실패 ❌", f"{failed}건")
-            progress_bar.progress((i + 1) / total)
-            log_box.code("\n".join(reversed(logs[-10:])), language="text")
+                if res_code == "LIKED":
+                    success += 1
+                    article["status"] = "좋아요 완료"
+                    logs.append(f"[{now_str}] 💖 [성공] '{title}' ({author}) 우측 상단 하트 클릭 완료")
+                elif res_code == "ALREADY_LIKED":
+                    skipped += 1
+                    article["status"] = "이미 좋아요됨"
+                    logs.append(f"[{now_str}] ℹ️ [스킵] '{title}' ({author}) 이미 하트가 눌러져 있습니다")
+                elif res_code == "NOT_LOGGED_IN":
+                    failed += 1
+                    article["status"] = "로그인 필요"
+                    logs.append(f"[{now_str}] ❌ [오류] 로그인 세션이 유효하지 않습니다: {msg}")
+                    st.error("로그인이 필요합니다. [1단계]에서 카카오 로그인 또는 쿠키 입력을 진행해주세요.")
+                    break
+                else:
+                    failed += 1
+                    article["status"] = "오류"
+                    logs.append(f"[{now_str}] ⚠️ [실패] '{title}': {msg}")
 
-            # 마지막 글이 아니라면 1초 ~ 30초 사이 무작위 지연 대기
-            if i < total - 1:
-                wait_time = random.randint(min_sec, max_sec)
-                for rem in range(wait_time, 0, -1):
-                    countdown_box.markdown(
-                        f"⏳ **다음 글까지 랜덤 대기 중:** `{rem}초` 남음 (선택된 대기 시간: **{wait_time}초** / 범위: {min_sec}~{max_sec}초)"
-                    )
-                    countdown_gauge.progress(rem / wait_time)
-                    time.sleep(1)
-                countdown_box.empty()
-                countdown_gauge.empty()
+                # 메트릭 및 진행바 업데이트
+                m_success.metric("성공 💖", f"{success}건")
+                m_skip.metric("스킵(이미 누름) ℹ️", f"{skipped}건")
+                m_fail.metric("실패 ❌", f"{failed}건")
+                progress_bar.progress((i + 1) / total)
+                log_box.code("\n".join(reversed(logs[-10:])), language="text")
 
-        current_status.empty()
-        st.balloons()
-        st.success(f"🎉 모든 작업이 완료되었습니다! (성공: {success}건, 스킵: {skipped}건, 오류: {failed}건)")
+                # 마지막 글이 아니라면 1초 ~ 30초 사이 무작위 지연 대기
+                if i < total - 1:
+                    wait_time = random.randint(min_sec, max_sec)
+                    for rem in range(wait_time, 0, -1):
+                        countdown_box.markdown(
+                            f"⏳ **다음 글까지 랜덤 대기 중:** `{rem}초` 남음 (선택된 대기 시간: **{wait_time}초** / 범위: {min_sec}~{max_sec}초)"
+                        )
+                        countdown_gauge.progress(rem / wait_time)
+                        time.sleep(1)
+                    countdown_box.empty()
+                    countdown_gauge.empty()
+
+            current_status.empty()
+            st.balloons()
+            st.success(f"🎉 모든 작업이 완료되었습니다! (성공: {success}건, 스킵: {skipped}건, 오류: {failed}건)")
+        finally:
+            if http_session:
+                http_session.close()
