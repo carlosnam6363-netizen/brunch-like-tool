@@ -19,3 +19,7 @@ Thumbs.db
 ehthumbs.db
 Desktop.ini
 $RECYCLE.BIN/
+
+# Tunnel binaries
+cloudflared.exe
+

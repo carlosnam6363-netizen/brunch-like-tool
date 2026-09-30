@@ -62,6 +62,28 @@ GitHub 웹사이트([github.com](https://github.com)) 안에서 버튼 하나로
 
 ---
 
+## 📱 4. 언제, 어디서든 스마트폰 / 다른 PC에서 웹사이트로 접속하기
+
+스마트폰(아이폰, 갤럭시) 및 외부 노트북/PC에서 웹 브라우저로 접속하는 3가지 방법입니다.
+
+### 🌟 [방법 A] 원클릭 외부 접속기 (즉시 접속)
+1. `run_remote_web.bat` 더블클릭 실행
+2. 화면에 표시되는 **`https://xxxxx.trycloudflare.com`** 보안 주소를 스마트폰 브라우저에 입력!
+3. 포트포워딩이나 복잡한 설정 없이 LTE/5G 모바일 환경 및 외부 PC에서 즉시 접속 가능합니다.
+
+### ☁️ [방법 B] Streamlit Community Cloud (평생 무료, 24시간 가동, PC 꺼져도 됨!)
+GitHub 저장소와 연동하여 24시간 언제든 열려있는 영구 웹사이트로 만드는 방법:
+1. **[share.streamlit.io](https://share.streamlit.io)** 접속 후 GitHub 계정으로 로그인
+2. **`Create app`** ➡️ **`carlosnam6363-netizen/brunch-like-tool`** 저장소 선택
+3. Main file path: `app.py` 확인 후 **`Deploy!`** 클릭
+4. 약 1분 후 **`https://[원하는이름].streamlit.app`** 영구 도메인이 생성되어 스마트폰 홈 화면에 추가해두고 언제든 사용 가능!
+
+### 🏠 [방법 C] 동일 Wi-Fi(공유기) 내 로컬 접속
+1. 현재 PC에서 웹서버 실행 (`run_web.bat`)
+2. 같은 Wi-Fi에 연결된 스마트폰/노트북에서 브라우저를 열고 `http://[현재PC의_IP]:8501` 접속
+
+---
+
 ## 📁 전체 프로젝트 구조
 
 ```
@@ -74,7 +96,8 @@ brunch-like-tool/
 ├── cli.py                      # ⚡ [CLI/GitHub] GitHub Actions 및 터미널 실행기
 ├── .github/workflows/          # ☁️ [GitHub Actions] 1~30초 랜덤 좋아요 워크플로우
 ├── bookmarklet.js              # 🍪 1초 쿠키 복사 북마크릿
-├── run_web.bat                 # 🌐 웹 대시보드 1클릭 실행기
+├── run_web.bat                 # 🌐 로컬 웹 대시보드 실행기
+├── run_remote_web.bat          # 📱 스마트폰/외부 원격 접속 웹 실행기
 ├── run_gui.bat                 # 🪟 GUI 1클릭 실행기
 └── requirements.txt            # 필요 패키지 목록
 ```

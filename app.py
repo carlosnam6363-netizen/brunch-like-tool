@@ -51,13 +51,32 @@ st.markdown(
     unsafe_allow_html=True
 )
 
-# 세션 상태 초기화
+# 세션 상태 초기화 및 자동 로그인 복원
 if "articles" not in st.session_state:
     st.session_state.articles = []
 if "cookie_str" not in st.session_state:
-    st.session_state.cookie_str = ""
+    default_cookie = os.getenv("BRUNCH_COOKIE", "")
+    if not default_cookie and hasattr(st, "secrets") and "BRUNCH_COOKIE" in st.secrets:
+        try:
+            default_cookie = str(st.secrets["BRUNCH_COOKIE"])
+        except Exception:
+            pass
+    cache_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "brunch_profile", "last_cookie.txt")
+    if not default_cookie and os.path.exists(cache_path):
+        try:
+            with open(cache_path, "r", encoding="utf-8") as f:
+                default_cookie = f.read().strip()
+        except Exception:
+            pass
+    st.session_state.cookie_str = default_cookie
+
 if "auth_user" not in st.session_state:
-    st.session_state.auth_user = None
+    if st.session_state.cookie_str:
+        is_ok, user_info = check_user_session(st.session_state.cookie_str)
+        st.session_state.auth_user = user_info if is_ok else None
+    else:
+        st.session_state.auth_user = None
+
 if "bot" not in st.session_state:
     st.session_state.bot = None
 
@@ -104,7 +123,13 @@ with tab_cookie:
                 is_ok, user_info = check_user_session(st.session_state.cookie_str)
                 if is_ok:
                     st.session_state.auth_user = user_info
-                    st.success(f"인증 성공! [{user_info}]")
+                    try:
+                        os.makedirs(os.path.dirname(cache_path), exist_ok=True)
+                        with open(cache_path, "w", encoding="utf-8") as f:
+                            f.write(st.session_state.cookie_str)
+                    except Exception:
+                        pass
+                    st.success(f"인증 성공! [{user_info}] (세션 자동 기억됨)")
                 else:
                     st.session_state.auth_user = None
                     st.error(f"세션 확인 실패: {user_info}")
