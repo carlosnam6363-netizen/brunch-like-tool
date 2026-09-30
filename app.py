@@ -81,6 +81,7 @@ with st.sidebar:
         index=0
     )
 
+    browser_type = "chrome"
     if "쿠키" in auth_mode:
         cookie_input = st.text_area(
             "브런치 쿠키(Cookie) 붙여넣기",
