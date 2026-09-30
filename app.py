@@ -79,6 +79,8 @@ if "auth_user" not in st.session_state:
 
 if "bot" not in st.session_state:
     st.session_state.bot = None
+if "completed_keys" not in st.session_state:
+    st.session_state.completed_keys = set()
 
 # 사이드바: 북마크릿 및 동작 원리 안내
 with st.sidebar:
@@ -204,23 +206,50 @@ with col_btn1:
 with col_btn2:
     start_auto_like = st.button("🚀 2. 랜덤 간격 자동 좋아요 시작", type="primary")
 
-# 글 목록 테이블 표시
+# 글 목록 탭 분리 표시 (대기 중 vs 좋아요 완료)
+pending_list = [a for a in st.session_state.articles if a["url"] not in st.session_state.completed_keys and a.get("status") not in ("좋아요 완료", "이미 좋아요됨")]
+done_list = [a for a in st.session_state.articles if a["url"] in st.session_state.completed_keys or a.get("status") in ("좋아요 완료", "이미 좋아요됨")]
+
 if st.session_state.articles:
-    st.markdown(f"#### 📑 연재 글 목록 (총 {len(st.session_state.articles)}건)")
-    df_rows = [
-        {
-            "#": idx + 1,
-            "글 제목": a["article_title"],
-            "작가": a["user_name"],
-            "매거진": a["magazine_title"],
-            "발행일시": a["publish_date_str"],
-            "현재 좋아요": a["like_count"],
-            "상태": a.get("status", "대기중"),
-            "URL": a["url"]
-        }
-        for idx, a in enumerate(st.session_state.articles)
-    ]
-    st.dataframe(pd.DataFrame(df_rows), hide_index=True, use_container_width=True)
+    st.markdown(f"#### 📑 연재 글 목록 (대기 {len(pending_list)}건 / 완료 {len(done_list)}건)")
+    tab_pend, tab_comp = st.tabs([f"📑 대기 중인 글 ({len(pending_list)}건)", f"💖 좋아요 완료 ({len(done_list)}건)"])
+    
+    with tab_pend:
+        if pending_list:
+            df_rows = [
+                {
+                    "#": idx + 1,
+                    "글 제목": a["article_title"],
+                    "작가": a["user_name"],
+                    "매거진": a["magazine_title"],
+                    "발행일시": a["publish_date_str"],
+                    "현재 좋아요": a["like_count"],
+                    "상태": a.get("status", "대기중"),
+                    "URL": a["url"]
+                }
+                for idx, a in enumerate(pending_list)
+            ]
+            st.dataframe(pd.DataFrame(df_rows), hide_index=True, use_container_width=True)
+        else:
+            st.info("대기 중인 글이 없습니다. 모든 글에 이미 좋아요가 완료되었습니다.")
+
+    with tab_comp:
+        if done_list:
+            df_done = [
+                {
+                    "#": idx + 1,
+                    "글 제목": a["article_title"],
+                    "작가": a["user_name"],
+                    "매거진": a["magazine_title"],
+                    "발행일시": a["publish_date_str"],
+                    "처리 상태": a.get("status", "완료"),
+                    "URL": a["url"]
+                }
+                for idx, a in enumerate(done_list)
+            ]
+            st.dataframe(pd.DataFrame(df_done), hide_index=True, use_container_width=True)
+        else:
+            st.caption("아직 완료된 글이 없습니다.")
 
 # ----------------------------------------------------
 # 3단계: 자동 좋아요 실시간 실행
@@ -229,11 +258,16 @@ if start_auto_like:
     if not st.session_state.articles:
         st.warning("먼저 [1. 연재 글 목록 불러오기]를 눌러 글 목록을 조회해주세요.")
     else:
+        # 중복 방지: 대기 중인 글만 대상으로 필터링
+        articles = [a for a in st.session_state.articles if a["url"] not in st.session_state.completed_keys and a.get("status") not in ("좋아요 완료", "이미 좋아요됨")]
+        if not articles:
+            st.info("대기 중인 글이 없거나 모든 글의 좋아요가 이미 완료되었습니다!")
+            st.stop()
+
         use_cookie = bool(st.session_state.cookie_str)
         if not use_cookie and not st.session_state.bot:
             st.session_state.bot = BrunchBot(browser_type="chrome")
 
-        articles = st.session_state.articles
         total = len(articles)
 
         st.markdown("---")
@@ -283,10 +317,12 @@ if start_auto_like:
                 if res_code == "LIKED":
                     success += 1
                     article["status"] = "좋아요 완료"
+                    st.session_state.completed_keys.add(url)
                     logs.append(f"[{now_str}] 💖 [성공] '{title}' ({author}) 우측 상단 하트 클릭 완료")
                 elif res_code == "ALREADY_LIKED":
                     skipped += 1
                     article["status"] = "이미 좋아요됨"
+                    st.session_state.completed_keys.add(url)
                     logs.append(f"[{now_str}] ℹ️ [스킵] '{title}' ({author}) 이미 하트가 눌러져 있습니다")
                 elif res_code == "NOT_LOGGED_IN":
                     failed += 1
