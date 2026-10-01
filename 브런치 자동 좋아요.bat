@@ -1,4 +1,4 @@
-﻿@echo off
+@echo off
 cd /d "%~dp0"
 chcp 65001 > nul
 title 브런치 자동 좋아요 (GUI)
@@ -8,7 +8,6 @@ echo  브런치 연재글 자동 좋아요 도구 (GUI)
 echo ====================================================
 echo.
 
-REM 깃허브 최신 업데이트 자동 확인 및 동기화 (Git 설치 환경)
 where git >nul 2>&1
 if %errorlevel% equ 0 (
     if exist ".git" (

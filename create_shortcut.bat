@@ -1,4 +1,4 @@
-﻿@echo off
+@echo off
 cd /d "%~dp0"
 chcp 65001 > nul
 title 바탕화면 바로가기 생성

@@ -1,4 +1,4 @@
-﻿@echo off
+@echo off
 cd /d "%~dp0"
 chcp 65001 > nul
 title 브런치 자동 좋아요 도구 - 환경 설정
