@@ -16,7 +16,7 @@ import threading
 import tkinter as tk
 from tkinter import ttk, messagebox, scrolledtext, simpledialog
 from datetime import datetime
-from typing import Tuple, Dict
+from typing import Tuple, Dict, Optional, List, Set, Any
 
 # 로컬 모듈 로드
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
