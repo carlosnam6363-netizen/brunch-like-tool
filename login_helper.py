@@ -85,13 +85,55 @@ def interactive_browser_login():
 
         print("\n[3/3] 브라우저 세션에서 쿠키를 추출하고 인증을 검증합니다...")
         try:
+            cur_url = driver.current_url
+            if "accounts.kakao.com" in cur_url:
+                print("⚠️ 현재 브라우저가 아직 카카오 계정 로그인 화면에 머물러 있습니다.")
+                print("   👉 브라우저 창에서 카카오 아이디/비밀번호 입력 및 인증을 끝까지 완료해주세요!")
+                retry = input("\n다시 확인하시겠습니까? (Y/n) [기본: Y]: ").strip().lower()
+                if retry == "n":
+                    break
+                continue
+
+            # 브런치 페이지로 새로고침/동기화
+            if "brunch.co.kr" not in cur_url:
+                driver.get("https://brunch.co.kr")
+                time.sleep(1.5)
+
+            # 브라우저 DOM 내 로그인 사용자 정보 확인
+            dom_user = driver.execute_script("""
+                try {
+                    if (typeof B !== 'undefined' && B.User && (B.User.name || B.User.userId || B.User.profileId)) {
+                        return B.User.name || B.User.nickname || B.User.userId;
+                    }
+                    const profile = document.querySelector('.btn_profile, .img_thumb, [data-tiara-layer*="profile"]');
+                    if (profile && !document.querySelector('.wrap_side_profile.logout')) {
+                        return '인증된 작가';
+                    }
+                } catch(e) {}
+                return null;
+            """)
+
             cookies = driver.get_cookies()
             cookie_parts = [f"{c['name']}={c['value']}" for c in cookies]
             cookie_str = "; ".join(cookie_parts)
 
-            if save_and_verify(cookie_str):
+            is_ok, user = check_user_session(cookie_str)
+            user_display = dom_user or user
+
+            if is_ok or dom_user:
+                with open(COOKIE_FILE, "w", encoding="utf-8") as f:
+                    f.write(cookie_str)
+                print("\n" + "=" * 65)
+                print(f"  ✨ [인증 성공] '{user_display}' 작가님 계정으로 확인되었습니다!")
+                print(f"  💾 쿠키 저장 완료: {COOKIE_FILE}")
+                print("=" * 65)
+                print("\n🎉 모든 셋팅이 완료되었습니다!")
+                print("   매일 아침 06:00에 이 저장된 쿠키를 이용해 자동으로 좋아요가 실행됩니다.")
+                print("   (PC를 켜두시면 스스로 작동하며, 창은 닫으셔도 됩니다.)\n")
                 break
             else:
+                print("\n❌ [인증 실패] 브런치 로그인 정보를 찾을 수 없습니다.")
+                print("   👉 브라우저 우측 상단에 [시작하기] 대신 '내 프로필 사진'이 보이는지 확인해주세요.")
                 retry = input("다시 시도하시겠습니까? (Y/n) [기본: Y]: ").strip().lower()
                 if retry == "n":
                     break

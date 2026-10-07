@@ -262,7 +262,19 @@ def check_user_session(cookies: Union[str, dict], session: Optional[requests.Ses
             return False, f"서버 응답 코드: {resp.status_code}"
 
         html = resp.text
-        # USER_DATA 파싱
+
+        # 1. B.User 파싱 (최신 브런치 웹 규격)
+        b_user_match = re.search(r'B\.User\s*=\s*(\{.*?\});', html, re.DOTALL)
+        if b_user_match:
+            try:
+                b_user_info = json.loads(b_user_match.group(1))
+                if b_user_info.get("userId") or b_user_info.get("name") or b_user_info.get("profileId"):
+                    user_name = b_user_info.get("name") or b_user_info.get("nickname") or b_user_info.get("userId")
+                    return True, user_name
+            except Exception:
+                pass
+
+        # 2. USER_DATA 레거시 스크립트 파싱
         user_match = RE_USER_DATA.search(html)
         if user_match:
             try:
@@ -272,11 +284,16 @@ def check_user_session(cookies: Union[str, dict], session: Optional[requests.Ses
             except Exception:
                 pass
 
-        # 쿠키 키 확인
-        if "b_uid" in cookie_dict or "brunch_session" in cookie_dict:
+        # 3. DOM 프로필 요소 또는 로그인 상태 확인
+        if ("wrap_side_profile login" in html or "btn_profile" in html) and "wrap_side_profile logout" not in html:
+            return True, "인증된 작가"
+
+        # 4. 브런치 인증 쿠키 키 확인
+        auth_keys = ["b_uid", "brunch_session", "_karmt", "_kawlt", "BT_KEY"]
+        if any(k in cookie_dict for k in auth_keys):
             return True, "인증된 사용자"
 
-        return False, "로그인 정보(USER_DATA/세션)를 찾을 수 없습니다."
+        return False, "로그인 정보(세션/계정)를 찾을 수 없습니다."
     except Exception as e:
         return False, f"확인 중 오류: {str(e)}"
     finally:
