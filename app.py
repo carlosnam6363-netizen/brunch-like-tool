@@ -19,7 +19,7 @@ import streamlit as st
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from brunch_api import fetch_serial_articles, fetch_multiple_days_articles, check_user_session, parse_cookie_string, like_article_api
 from browser_bot import BrunchBot
-from daily_stats import get_today_liked_count, record_daily_like, can_like_today, reset_today_liked_count, DAILY_LIKE_LIMIT
+from daily_stats import get_today_liked_count, record_daily_like, can_like_today, reset_today_liked_count, DAILY_LIKE_LIMIT, get_today_daily_limit
 
 st.set_page_config(
     page_title="브런치 연재글 자동 좋아요 도구",
@@ -282,9 +282,10 @@ if st.session_state.articles:
 # 3단계: 자동 좋아요 실시간 실행
 # ----------------------------------------------------
 if start_auto_like:
-    can_proceed, today_cnt, remaining = can_like_today(DAILY_LIKE_LIMIT)
+    today_limit = get_today_daily_limit()
+    can_proceed, today_cnt, remaining = can_like_today(today_limit)
     if not can_proceed:
-        st.warning(f"🛑 오늘 이미 일일 최대 좋아요 한도({DAILY_LIKE_LIMIT:,}회 중 {today_cnt:,}회)를 모두 달성하였습니다. 카카오/브런치 계정 보호를 위해 내일 다시 실행해주세요.")
+        st.warning(f"🛑 오늘 이미 일일 최대 좋아요 한도({today_limit:,}회 중 {today_cnt:,}회)를 모두 달성하였습니다. 카카오/브런치 계정 보호를 위해 내일 다시 실행해주세요.")
         st.stop()
 
     if not st.session_state.articles:
@@ -310,7 +311,7 @@ if start_auto_like:
         m_success = col_m2.metric("성공 💖", "0건")
         m_skip = col_m3.metric("스킵(이미 누름) ℹ️", "0건")
         m_fail = col_m4.metric("실패 ❌", "0건")
-        m_daily = col_m5.metric("오늘 누적 좋아요", f"{today_cnt} / {DAILY_LIKE_LIMIT}회")
+        m_daily = col_m5.metric("오늘 누적 좋아요", f"{today_cnt} / {today_limit}회")
 
         progress_bar = st.progress(0)
         current_status = st.empty()
@@ -332,9 +333,9 @@ if start_auto_like:
         try:
             for i, article in enumerate(articles):
                 cur_cnt = get_today_liked_count()
-                if cur_cnt >= DAILY_LIKE_LIMIT:
-                    logs.append(f"[{time.strftime('%H:%M:%S')}] 🛑 일일 최대 좋아요 한도({DAILY_LIKE_LIMIT}회)에 도달하여 작업을 안전하게 자동 중단합니다.")
-                    st.warning(f"일일 최대 한도({DAILY_LIKE_LIMIT}회)에 도달하여 작업이 안전하게 자동 중단되었습니다.")
+                if cur_cnt >= today_limit:
+                    logs.append(f"[{time.strftime('%H:%M:%S')}] 🛑 일일 최대 좋아요 한도({today_limit}회)에 도달하여 작업을 안전하게 자동 중단합니다.")
+                    st.warning(f"일일 최대 한도({today_limit}회)에 도달하여 작업이 안전하게 자동 중단되었습니다.")
                     break
 
                 title = article["article_title"]
