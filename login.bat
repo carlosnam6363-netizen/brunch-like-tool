@@ -9,3 +9,9 @@ if exist "venv\Scripts\python.exe" set PYTHON_CMD=venv\Scripts\python.exe
 set PYTHONIOENCODING=utf-8
 
 %PYTHON_CMD% login_helper.py
+
+if errorlevel 1 (
+    echo.
+    echo [!] 오류가 발생했습니다.
+    pause
+)

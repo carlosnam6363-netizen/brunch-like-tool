@@ -27,7 +27,6 @@ COOKIE_FILE = os.path.join(PROFILE_DIR, "last_cookie.txt")
 
 
 def save_and_verify(cookie_str: str) -> bool:
-def save_and_verify(cookie_str: str) -> bool:
     """쿠키 검증 후 유효할 때만 파일에 저장"""
     cookie_str = cookie_str.strip()
     if not cookie_str:
@@ -127,15 +126,23 @@ def main():
     print("  2. 이미 복사해둔 쿠키 문자열 직접 붙여넣기")
     print("  3. 종료")
 
-    choice = input("\n선택 번호 (1/2/3) [기본: 1]: ").strip()
+    try:
+        choice = input("\n선택 번호 (1/2/3) [기본: 1]: ").strip()
+    except (EOFError, KeyboardInterrupt):
+        return
+
     if choice == "2":
         direct_cookie_input()
     elif choice == "3":
         print("종료합니다.")
+        return
     else:
         interactive_browser_login()
 
-    input("\n계속하려면 아무 키나 누르십시오 . . .")
+    try:
+        input("\n계속하려면 아무 키나 누르십시오 . . .")
+    except (EOFError, KeyboardInterrupt):
+        pass
 
 
 if __name__ == "__main__":
