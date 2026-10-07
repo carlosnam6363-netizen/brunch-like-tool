@@ -416,7 +416,23 @@ class BrunchLikeApp:
             try:
                 if not self.bot:
                     self.bot = BrunchBot(browser_type=browser)
-                self.bot.open_login_window(on_login_success=lambda: self._log("카카오 로그인 성공이 감지되었습니다!", "SUCCESS"))
+
+                def on_success():
+                    self._log("카카오 로그인 성공이 감지되었습니다!", "SUCCESS")
+                    try:
+                        driver = self.bot.driver
+                        if driver:
+                            cookies = driver.get_cookies()
+                            cookie_parts = [f"{c['name']}={c['value']}" for c in cookies]
+                            cookie_str = "; ".join(cookie_parts)
+                            cookie_file = os.path.join(self.profile_dir, "last_cookie.txt")
+                            with open(cookie_file, "w", encoding="utf-8") as f:
+                                f.write(cookie_str)
+                            self._log("✨ 로그인 세션 쿠키가 자동 저장(last_cookie.txt)되었습니다.", "SUCCESS")
+                    except Exception as err:
+                        self._log(f"쿠키 저장 중 오류: {err}", "WARN")
+
+                self.bot.open_login_window(on_login_success=on_success)
             except Exception as e:
                 self._log(f"브라우저 실행 오류: {e}", "ERROR")
 
@@ -432,8 +448,14 @@ class BrunchLikeApp:
             self.cookie_str = cookie.strip()
             is_ok, user = check_user_session(self.cookie_str)
             if is_ok:
-                self._log(f"[쿠키 인증 성공] '{user}' 작가님 계정으로 확인되었습니다.", "SUCCESS")
-                messagebox.showinfo("인증 성공", f"쿠키 세션 검증 성공!\n인증 계정: {user}")
+                cookie_file = os.path.join(self.profile_dir, "last_cookie.txt")
+                try:
+                    with open(cookie_file, "w", encoding="utf-8") as f:
+                        f.write(self.cookie_str)
+                except Exception:
+                    pass
+                self._log(f"[쿠키 인증 성공] '{user}' 작가님 계정으로 확인되었습니다. (자동 저장됨)", "SUCCESS")
+                messagebox.showinfo("인증 성공", f"쿠키 세션 검증 성공!\n인증 계정: {user}\n(자동 저장 완료)")
             else:
                 self._log(f"[쿠키 인증 경고] 세션 확인 실패: {user}", "WARN")
                 messagebox.showwarning("인증 경고", f"세션 검증 실패: {user}\n쿠키를 다시 확인해주세요.")
