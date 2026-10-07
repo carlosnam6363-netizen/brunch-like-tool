@@ -16,6 +16,7 @@ def create_shortcuts():
 
     gui_bat = os.path.join(base_dir, "run_gui.bat")
     agent_bat = os.path.join(base_dir, "run_auto_agent.bat")
+    login_bat = os.path.join(base_dir, "login.bat")
 
     ps_script = f"""
 $wsh = New-Object -ComObject WScript.Shell
@@ -32,6 +33,12 @@ $s2.TargetPath = "{agent_bat}"
 $s2.WorkingDirectory = "{base_dir}"
 $s2.IconLocation = "$env:SystemRoot\\System32\\shell32.dll,264"
 $s2.Save()
+
+$s3 = $wsh.CreateShortcut("$desktop\\브런치 로그인 및 쿠키 등록.lnk")
+$s3.TargetPath = "{login_bat}"
+$s3.WorkingDirectory = "{base_dir}"
+$s3.IconLocation = "$env:SystemRoot\\System32\\shell32.dll,105"
+$s3.Save()
 """
     # Write as UTF-8 with BOM
     ps_path = os.path.join(base_dir, "create_shortcut.ps1")

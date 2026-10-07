@@ -13,3 +13,9 @@ $s2.TargetPath = "C:\Users\user\.gemini\antigravity\scratch\brunch-like-tool\run
 $s2.WorkingDirectory = "C:\Users\user\.gemini\antigravity\scratch\brunch-like-tool"
 $s2.IconLocation = "$env:SystemRoot\System32\shell32.dll,264"
 $s2.Save()
+
+$s3 = $wsh.CreateShortcut("$desktop\브런치 로그인 및 쿠키 등록.lnk")
+$s3.TargetPath = "C:\Users\user\.gemini\antigravity\scratch\brunch-like-tool\login.bat"
+$s3.WorkingDirectory = "C:\Users\user\.gemini\antigravity\scratch\brunch-like-tool"
+$s3.IconLocation = "$env:SystemRoot\System32\shell32.dll,105"
+$s3.Save()
