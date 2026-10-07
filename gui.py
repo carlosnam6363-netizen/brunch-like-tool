@@ -20,9 +20,10 @@ from typing import Tuple, Dict, Optional
 
 # 로컬 모듈 로드
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-from brunch_api import fetch_serial_articles, check_user_session, normalize_day, normalize_order
+from brunch_api import fetch_serial_articles, fetch_multiple_days_articles, check_user_session, normalize_day, normalize_order
 from browser_bot import BrunchBot
 from scheduler import LikeScheduler
+from daily_stats import get_today_liked_count, can_like_today, reset_today_liked_count, DAILY_LIKE_LIMIT
 
 
 class BrunchLikeApp:
@@ -50,6 +51,7 @@ class BrunchLikeApp:
 
         self._init_styles()
         self._build_ui()
+        self._update_daily_stats_display()
 
     def _init_styles(self):
         style = ttk.Style()
@@ -118,50 +120,50 @@ class BrunchLikeApp:
         control_frame = ttk.LabelFrame(main_frame, text=" ⚙️ 실행 설정 및 로그인 ", padding=10, style="Card.TLabelframe")
         control_frame.pack(fill=tk.X, pady=(0, 10))
 
-        # 1행: 요일, 정렬, 간격, 브라우저/모드
+        # 1행: 요일 다중 선택, 정렬 기준, 브라우저
         row1 = ttk.Frame(control_frame)
-        row1.pack(fill=tk.X, pady=(0, 8))
+        row1.pack(fill=tk.X, pady=(0, 6))
 
-        ttk.Label(row1, text="요일 선택:").pack(side=tk.LEFT, padx=(0, 4))
-        self.day_var = tk.StringVar(value="화요일 (tue)")
-        day_combo = ttk.Combobox(
-            row1,
-            textvariable=self.day_var,
-            values=[
-                "월요일 (mon)", "화요일 (tue)", "수요일 (wed)", "목요일 (thu)",
-                "금요일 (fri)", "토요일 (sat)", "일요일 (sun)", "완결작 (com)"
-            ],
-            width=14,
-            state="readonly"
-        )
-        day_combo.pack(side=tk.LEFT, padx=(0, 15))
-        day_combo.bind("<<ComboboxSelected>>", self._on_setting_changed)
+        ttk.Label(row1, text="요일 선택(다중):", font=("Malgun Gothic", 9, "bold")).pack(side=tk.LEFT, padx=(0, 6))
 
-        ttk.Label(row1, text="정렬 기준:").pack(side=tk.LEFT, padx=(0, 4))
+        self.day_options = [
+            ("mon", "월"), ("tue", "화"), ("wed", "수"), ("thu", "목"),
+            ("fri", "금"), ("sat", "토"), ("sun", "일"), ("com", "완결")
+        ]
+        self.day_vars = {code: tk.BooleanVar(value=(code == "tue")) for code, _ in self.day_options}
+        self.all_days_var = tk.BooleanVar(value=False)
+
+        def on_toggle_all():
+            state = self.all_days_var.get()
+            for v in self.day_vars.values():
+                v.set(state)
+            self._on_setting_changed()
+
+        def on_day_checked():
+            all_checked = all(v.get() for v in self.day_vars.values())
+            self.all_days_var.set(all_checked)
+            self._on_setting_changed()
+
+        chk_all = ttk.Checkbutton(row1, text="전체", variable=self.all_days_var, command=on_toggle_all)
+        chk_all.pack(side=tk.LEFT, padx=(0, 4))
+
+        for code, label in self.day_options:
+            chk = ttk.Checkbutton(row1, text=label, variable=self.day_vars[code], command=on_day_checked)
+            chk.pack(side=tk.LEFT, padx=(0, 4))
+
+        ttk.Separator(row1, orient=tk.VERTICAL).pack(side=tk.LEFT, fill=tk.Y, padx=8)
+
+        ttk.Label(row1, text="정렬:").pack(side=tk.LEFT, padx=(0, 4))
         self.order_var = tk.StringVar(value="최신순 (PUBLISH_TIME)")
         order_combo = ttk.Combobox(
             row1,
             textvariable=self.order_var,
             values=["최신순 (PUBLISH_TIME)", "인기순 (POPULARITY)"],
-            width=20,
+            width=18,
             state="readonly"
         )
-        order_combo.pack(side=tk.LEFT, padx=(0, 15))
+        order_combo.pack(side=tk.LEFT, padx=(0, 10))
         order_combo.bind("<<ComboboxSelected>>", self._on_setting_changed)
-
-        ttk.Label(row1, text="좋아요 간격 (실시간 수정 가능):", font=("Malgun Gothic", 9, "bold"), foreground="#0284c7").pack(side=tk.LEFT, padx=(0, 4))
-        self.interval_min_var = tk.IntVar(value=1)
-        spin_min = ttk.Spinbox(row1, from_=1, to=120, textvariable=self.interval_min_var, width=4)
-        spin_min.pack(side=tk.LEFT, padx=(0, 2))
-        ttk.Label(row1, text="초 ~").pack(side=tk.LEFT, padx=(0, 2))
-        self.interval_max_var = tk.IntVar(value=30)
-        spin_max = ttk.Spinbox(row1, from_=1, to=120, textvariable=self.interval_max_var, width=4)
-        spin_max.pack(side=tk.LEFT, padx=(0, 2))
-        ttk.Label(row1, text="초 사이").pack(side=tk.LEFT, padx=(0, 15))
-
-        # 간격 실시간 수정 감지 바인딩
-        self.interval_min_var.trace_add("write", lambda *args: self._on_interval_modified())
-        self.interval_max_var.trace_add("write", lambda *args: self._on_interval_modified())
 
         ttk.Label(row1, text="브라우저:").pack(side=tk.LEFT, padx=(0, 4))
         self.browser_var = tk.StringVar(value="chrome")
@@ -172,31 +174,63 @@ class BrunchLikeApp:
             width=8,
             state="readonly"
         )
-        browser_combo.pack(side=tk.LEFT, padx=(0, 10))
+        browser_combo.pack(side=tk.LEFT)
 
-        # 2행: 주요 버튼 그룹
+        # 2행: 좋아요 간격 (실시간 수정) & 일일 누적 카운터 (1,498회 한도)
         row2 = ttk.Frame(control_frame)
-        row2.pack(fill=tk.X)
+        row2.pack(fill=tk.X, pady=(0, 8))
 
-        self.btn_login = ttk.Button(row2, text="🔑 1. 카카오 로그인 브라우저 열기", command=self._open_login_window)
+        ttk.Label(row2, text="좋아요 간격:", font=("Malgun Gothic", 9, "bold"), foreground="#0284c7").pack(side=tk.LEFT, padx=(0, 4))
+        self.interval_min_var = tk.IntVar(value=1)
+        spin_min = ttk.Spinbox(row2, from_=1, to=120, textvariable=self.interval_min_var, width=3)
+        spin_min.pack(side=tk.LEFT, padx=(0, 2))
+        ttk.Label(row2, text="초 ~").pack(side=tk.LEFT, padx=(0, 2))
+        self.interval_max_var = tk.IntVar(value=30)
+        spin_max = ttk.Spinbox(row2, from_=1, to=120, textvariable=self.interval_max_var, width=3)
+        spin_max.pack(side=tk.LEFT, padx=(0, 2))
+        ttk.Label(row2, text="초 사이").pack(side=tk.LEFT, padx=(0, 16))
+
+        # 간격 실시간 수정 감지 바인딩
+        self.interval_min_var.trace_add("write", lambda *args: self._on_interval_modified())
+        self.interval_max_var.trace_add("write", lambda *args: self._on_interval_modified())
+
+        ttk.Separator(row2, orient=tk.VERTICAL).pack(side=tk.LEFT, fill=tk.Y, padx=8)
+
+        # 일일 누적 카운터 표시
+        self.daily_stats_lbl = ttk.Label(
+            row2,
+            text="💖 오늘 누적 좋아요: 0 / 1,498회 (잔여: 1,498회)",
+            font=("Malgun Gothic", 9, "bold"),
+            foreground="#047857"
+        )
+        self.daily_stats_lbl.pack(side=tk.LEFT, padx=(4, 8))
+
+        self.btn_reset_daily = ttk.Button(row2, text="↺ 오늘 카운트 초기화", command=self._reset_daily_stats)
+        self.btn_reset_daily.pack(side=tk.LEFT)
+
+        # 3행: 주요 동작 버튼 그룹
+        row3 = ttk.Frame(control_frame)
+        row3.pack(fill=tk.X)
+
+        self.btn_login = ttk.Button(row3, text="🔑 1. 카카오 로그인 브라우저 열기", command=self._open_login_window)
         self.btn_login.pack(side=tk.LEFT, padx=(0, 6))
 
-        self.btn_cookie = ttk.Button(row2, text="🍪 쿠키 직접 입력", command=self._open_cookie_dialog)
+        self.btn_cookie = ttk.Button(row3, text="🍪 쿠키 직접 입력", command=self._open_cookie_dialog)
         self.btn_cookie.pack(side=tk.LEFT, padx=(0, 10))
 
-        self.btn_fetch = ttk.Button(row2, text="📋 2. 연재 글 목록 불러오기", command=self._fetch_articles)
+        self.btn_fetch = ttk.Button(row3, text="📋 2. 연재 글 목록 불러오기", command=self._fetch_articles)
         self.btn_fetch.pack(side=tk.LEFT, padx=(0, 8))
 
-        self.btn_start = ttk.Button(row2, text="🚀 3. 자동 좋아요 시작", command=self._start_like, style="Action.TButton")
+        self.btn_start = ttk.Button(row3, text="🚀 3. 자동 좋아요 시작", command=self._start_like, style="Action.TButton")
         self.btn_start.pack(side=tk.LEFT, padx=(0, 8))
 
-        self.btn_pause = ttk.Button(row2, text="⏸️ 일시정지", command=self._toggle_pause, state="disabled")
+        self.btn_pause = ttk.Button(row3, text="⏸️ 일시정지", command=self._toggle_pause, state="disabled")
         self.btn_pause.pack(side=tk.LEFT, padx=(0, 6))
 
-        self.btn_stop = ttk.Button(row2, text="⏹️ 중단", command=self._stop_like, style="Stop.TButton", state="disabled")
+        self.btn_stop = ttk.Button(row3, text="⏹️ 중단", command=self._stop_like, style="Stop.TButton", state="disabled")
         self.btn_stop.pack(side=tk.LEFT, padx=(0, 8))
 
-        self.btn_clear_done = ttk.Button(row2, text="🗑️ 완료 이력 초기화", command=self._clear_completed_cache)
+        self.btn_clear_done = ttk.Button(row3, text="🗑️ 완료 이력 초기화", command=self._clear_completed_cache)
         self.btn_clear_done.pack(side=tk.RIGHT)
 
         # 3. 진행 상태 바 & 안내 레이블
@@ -227,9 +261,10 @@ class BrunchLikeApp:
         self.tab_pending = ttk.Frame(self.notebook)
         self.notebook.add(self.tab_pending, text="📑 대기 중인 글 목록 (0건)")
 
-        cols_pending = ("idx", "title", "author", "magazine", "date", "likes", "status")
+        cols_pending = ("idx", "day", "title", "author", "magazine", "date", "likes", "status")
         self.tree_pending = ttk.Treeview(self.tab_pending, columns=cols_pending, show="headings", selectmode="browse")
         self.tree_pending.heading("idx", text="#")
+        self.tree_pending.heading("day", text="요일")
         self.tree_pending.heading("title", text="글 제목")
         self.tree_pending.heading("author", text="작가")
         self.tree_pending.heading("magazine", text="매거진/브런치북")
@@ -237,13 +272,14 @@ class BrunchLikeApp:
         self.tree_pending.heading("likes", text="좋아요")
         self.tree_pending.heading("status", text="처리 상태")
 
-        self.tree_pending.column("idx", width=40, anchor="center")
-        self.tree_pending.column("title", width=280)
-        self.tree_pending.column("author", width=100)
-        self.tree_pending.column("magazine", width=170)
-        self.tree_pending.column("date", width=120, anchor="center")
-        self.tree_pending.column("likes", width=60, anchor="center")
-        self.tree_pending.column("status", width=110, anchor="center")
+        self.tree_pending.column("idx", width=36, anchor="center")
+        self.tree_pending.column("day", width=50, anchor="center")
+        self.tree_pending.column("title", width=270)
+        self.tree_pending.column("author", width=95)
+        self.tree_pending.column("magazine", width=160)
+        self.tree_pending.column("date", width=115, anchor="center")
+        self.tree_pending.column("likes", width=55, anchor="center")
+        self.tree_pending.column("status", width=105, anchor="center")
 
         scroll_p = ttk.Scrollbar(self.tab_pending, orient=tk.VERTICAL, command=self.tree_pending.yview)
         self.tree_pending.configure(yscrollcommand=scroll_p.set)
@@ -255,9 +291,10 @@ class BrunchLikeApp:
         self.tab_done = ttk.Frame(self.notebook)
         self.notebook.add(self.tab_done, text=f"💖 좋아요 완료 목록 ({len(self.completed_articles)}건)")
 
-        cols_done = ("idx", "title", "author", "magazine", "date", "status", "time")
+        cols_done = ("idx", "day", "title", "author", "magazine", "date", "status", "time")
         self.tree_done = ttk.Treeview(self.tab_done, columns=cols_done, show="headings", selectmode="browse")
         self.tree_done.heading("idx", text="#")
+        self.tree_done.heading("day", text="요일")
         self.tree_done.heading("title", text="글 제목")
         self.tree_done.heading("author", text="작가")
         self.tree_done.heading("magazine", text="매거진/브런치북")
@@ -265,13 +302,14 @@ class BrunchLikeApp:
         self.tree_done.heading("status", text="처리 결과")
         self.tree_done.heading("time", text="완료 시각")
 
-        self.tree_done.column("idx", width=40, anchor="center")
-        self.tree_done.column("title", width=280)
-        self.tree_done.column("author", width=100)
-        self.tree_done.column("magazine", width=170)
-        self.tree_done.column("date", width=120, anchor="center")
-        self.tree_done.column("status", width=110, anchor="center")
-        self.tree_done.column("time", width=100, anchor="center")
+        self.tree_done.column("idx", width=36, anchor="center")
+        self.tree_done.column("day", width=50, anchor="center")
+        self.tree_done.column("title", width=270)
+        self.tree_done.column("author", width=95)
+        self.tree_done.column("magazine", width=160)
+        self.tree_done.column("date", width=115, anchor="center")
+        self.tree_done.column("status", width=105, anchor="center")
+        self.tree_done.column("time", width=95, anchor="center")
 
         scroll_d = ttk.Scrollbar(self.tab_done, orient=tk.VERTICAL, command=self.tree_done.yview)
         self.tree_done.configure(yscrollcommand=scroll_d.set)
@@ -323,20 +361,52 @@ class BrunchLikeApp:
             min_sec, max_sec = self._get_current_interval()
             self.scheduler.update_interval(min_sec, max_sec)
 
-    def _get_selected_day_code(self) -> str:
-        text = self.day_var.get()
-        if "(" in text and ")" in text:
-            raw = text.split("(")[1].split(")")[0].strip()
-            return normalize_day(raw)
-        return normalize_day(text)
+    def _get_selected_days(self) -> list:
+        """선택된 요일 코드 목록을 반환합니다 (예: ['mon', 'tue'])"""
+        return [code for code, var in self.day_vars.items() if var.get()]
+
+    def _get_selected_day_names(self) -> str:
+        """선택된 요일 한글 이름 문자열 반환"""
+        selected = self._get_selected_days()
+        name_dict = dict(self.day_options)
+        return ", ".join([name_dict.get(c, c) for c in selected])
 
     def _get_selected_order_code(self) -> str:
         return normalize_order(self.order_var.get())
 
     def _on_setting_changed(self, event=None):
-        day_code = self._get_selected_day_code()
+        days_str = self._get_selected_day_names() or "선택 없음"
         order_code = self._get_selected_order_code()
-        self._log(f"설정 변경: 요일={day_code}, 정렬={order_code}", "INFO")
+        self._log(f"설정 변경: 요일=[{days_str}], 정렬={order_code}", "INFO")
+
+    def _update_daily_stats_display(self):
+        """오늘 누적 좋아요 수치 레이블을 갱신합니다."""
+        cnt = get_today_liked_count()
+        remaining = max(0, DAILY_LIKE_LIMIT - cnt)
+        color = "#dc2626" if remaining == 0 else ("#d97706" if remaining <= 100 else "#047857")
+        self.daily_stats_lbl.config(
+            text=f"💖 오늘 누적 좋아요: {cnt:,} / {DAILY_LIKE_LIMIT:,}회 (잔여: {remaining:,}회)",
+            foreground=color
+        )
+
+    def _on_daily_stats_updated(self, today_count: int, daily_limit: int):
+        """스케줄러에서 실시간 호출되는 일일 누적 콜백"""
+        def cb():
+            remaining = max(0, daily_limit - today_count)
+            color = "#dc2626" if remaining == 0 else ("#d97706" if remaining <= 100 else "#047857")
+            self.daily_stats_lbl.config(
+                text=f"💖 오늘 누적 좋아요: {today_count:,} / {daily_limit:,}회 (잔여: {remaining:,}회)",
+                foreground=color
+            )
+        self.root.after(0, cb)
+
+    def _reset_daily_stats(self):
+        """오늘 좋아요 카운트 수동 초기화"""
+        cnt = get_today_liked_count()
+        if messagebox.askyesno("오늘 카운트 초기화", f"현재 오늘 누적 좋아요 수치({cnt}회)를 0회로 초기화하시겠습니까?"):
+            reset_today_liked_count()
+            self._update_daily_stats_display()
+            self._log("오늘 일일 좋아요 누적 횟수가 0회로 초기화되었습니다.", "INFO")
 
     def _open_login_window(self):
         browser = self.browser_var.get()
@@ -376,13 +446,17 @@ class BrunchLikeApp:
         for row in self.tree_done.get_children():
             self.tree_done.delete(row)
 
+        name_dict = dict(self.day_options)
         for idx, art in enumerate(self.completed_articles):
+            src_day = art.get("source_day", "-")
+            day_kor = name_dict.get(src_day, src_day)
             self.tree_done.insert(
                 "",
                 tk.END,
                 iid=f"done_{idx}",
                 values=(
                     idx + 1,
+                    day_kor,
                     art.get("article_title", "무제"),
                     art.get("user_name", "작가"),
                     art.get("magazine_title", "-"),
@@ -398,13 +472,17 @@ class BrunchLikeApp:
         for row in self.tree_pending.get_children():
             self.tree_pending.delete(row)
 
+        name_dict = dict(self.day_options)
         for idx, art in enumerate(self.pending_articles):
+            src_day = art.get("source_day", "-")
+            day_kor = name_dict.get(src_day, src_day)
             self.tree_pending.insert(
                 "",
                 tk.END,
                 iid=f"pending_{idx}",
                 values=(
                     idx + 1,
+                    day_kor,
                     art.get("article_title", "무제"),
                     art.get("user_name", "작가"),
                     art.get("magazine_title", "-"),
@@ -416,18 +494,24 @@ class BrunchLikeApp:
         self.notebook.tab(0, text=f"📑 대기 중인 글 목록 ({len(self.pending_articles)}건)")
 
     def _fetch_articles(self):
-        day_code = self._get_selected_day_code()
+        selected_days = self._get_selected_days()
+        if not selected_days:
+            messagebox.showwarning("요일 선택", "글 목록을 수집할 요일을 최소 1개 이상 선택해주세요!")
+            return
+
         order_code = self._get_selected_order_code()
-        self._log(f"'{day_code}' 요일 ({order_code}) 연재 글 목록을 불러오는 중...", "INFO")
-        self.status_lbl.config(text="글 목록 불러오는 중...")
+        days_str = self._get_selected_day_names()
+        self._log(f"선택 요일 [{days_str}] ({order_code}) 연재 글 목록을 불러오는 중...", "INFO")
+        self.status_lbl.config(text=f"[{days_str}] 글 목록 불러오는 중...")
+        self.btn_fetch.config(state="disabled")
 
         def task():
             try:
-                items = fetch_serial_articles(
-                    day=day_code,
+                items = fetch_multiple_days_articles(
+                    days=selected_days,
                     order=order_code,
-                    progress_callback=lambda count: self.root.after(
-                        0, lambda: self.status_lbl.config(text=f"글 목록 수집 중... ({count}개)")
+                    progress_callback=lambda msg, count=None: self.root.after(
+                        0, lambda: self.status_lbl.config(text=str(msg))
                     )
                 )
                 self.articles = items
@@ -437,26 +521,27 @@ class BrunchLikeApp:
                 for art in items:
                     key = self._get_article_key(art)
                     if key in self.completed_keys:
-                        # 이미 완료 목록에 있는 글
                         continue
                     new_pending.append(art)
 
                 self.pending_articles = new_pending
 
                 def update_ui():
+                    self.btn_fetch.config(state="normal")
                     self._refresh_pending_tree()
                     self._refresh_done_tree()
                     self.status_lbl.config(
-                        text=f"글 목록 불러오기 완료: 대기 {len(self.pending_articles)}건 / 완료 {len(self.completed_articles)}건"
+                        text=f"글 목록 불러오기 완료: 대기 {len(self.pending_articles)}건 / 완료 {len(self.completed_articles)}건 (총 {len(items)}건)"
                     )
                     self.progress_bar.config(maximum=max(1, len(self.pending_articles)), value=0)
                     self._log(
-                        f"총 {len(items)}건 중 [대기: {len(self.pending_articles)}건 / 기완료: {len(self.completed_articles)}건] 정리 완료.",
+                        f"[{days_str}] 총 {len(items)}건 수집 완료 [대기: {len(self.pending_articles)}건 / 기완료: {len(self.completed_articles)}건]",
                         "SUCCESS"
                     )
 
                 self.root.after(0, update_ui)
             except Exception as e:
+                self.root.after(0, lambda: self.btn_fetch.config(state="normal"))
                 self._log(f"목록 수집 실패: {e}", "ERROR")
 
         threading.Thread(target=task, daemon=True).start()
@@ -476,11 +561,22 @@ class BrunchLikeApp:
             self.pending_articles = [a for a in self.pending_articles if self._get_article_key(a) != key]
             self._refresh_pending_tree()
             self._refresh_done_tree()
+            self._update_daily_stats_display()
 
         self.root.after(0, cb)
 
     def _start_like(self):
-        # 대기 중인 글 중 아직 완료되지 않은 글만 추출
+        # 1. 일일 최대 한도(1,498회) 사전 점검
+        can_proceed, today_cnt, remaining = can_like_today(DAILY_LIKE_LIMIT)
+        if not can_proceed:
+            messagebox.showwarning(
+                "일일 한도 달성",
+                f"오늘 이미 일일 최대 좋아요 한도({DAILY_LIKE_LIMIT:,}회 중 {today_cnt:,}회)를 모두 달성하였습니다!\n"
+                "카카오/브런치 계정 보호를 위해 내일 다시 실행해주세요."
+            )
+            return
+
+        # 2. 대기 중인 글 중 아직 완료되지 않은 글만 추출
         targets = [
             a for a in self.pending_articles
             if self._get_article_key(a) not in self.completed_keys and a.get("status") not in ("좋아요 완료", "이미 좋아요됨")
@@ -513,10 +609,12 @@ class BrunchLikeApp:
             interval_max=max_sec,
             bot=bot_instance,
             cookies=self.cookie_str if self.cookie_str else None,
+            daily_limit=DAILY_LIKE_LIMIT,
             log_callback=self._log,
             article_update_callback=self._update_article_progress,
             article_completed_callback=self._on_article_completed,
             countdown_callback=self._update_countdown,
+            daily_stats_callback=self._on_daily_stats_updated,
             on_finish_callback=self._on_schedule_finish,
             get_interval_callback=self._get_current_interval
         )
@@ -561,6 +659,7 @@ class BrunchLikeApp:
             self.btn_fetch.config(state="normal")
             self.countdown_lbl.config(text="")
             self.status_lbl.config(text=f"작업 완료 - 성공: {success}건, 스킵: {skipped}건, 실패: {failed}건")
+            self._update_daily_stats_display()
             self.notebook.select(1)  # 완료 후 완료 탭으로 이동
             messagebox.showinfo("완료", f"좋아요 작업이 완료되었습니다!\n- 성공: {success}건\n- 스킵(기완료): {skipped}건\n- 실패: {failed}건\n\n완료된 글은 [좋아요 완료 목록] 탭으로 이동되었습니다.")
         self.root.after(0, cb)

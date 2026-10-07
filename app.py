@@ -17,8 +17,9 @@ import pandas as pd
 import streamlit as st
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-from brunch_api import fetch_serial_articles, check_user_session, parse_cookie_string, like_article_api
+from brunch_api import fetch_serial_articles, fetch_multiple_days_articles, check_user_session, parse_cookie_string, like_article_api
 from browser_bot import BrunchBot
+from daily_stats import get_today_liked_count, record_daily_like, can_like_today, reset_today_liked_count, DAILY_LIKE_LIMIT
 
 st.set_page_config(
     page_title="브런치 연재글 자동 좋아요 도구",
@@ -158,12 +159,27 @@ st.markdown("---")
 # ----------------------------------------------------
 st.markdown("### ⚙️ [2단계] 요일 및 대기 간격 설정")
 
-col_opt1, col_opt2, col_opt3 = st.columns([1, 1, 2])
+# 일일 누적 좋아요 현황 표시
+cur_today_liked = get_today_liked_count()
+cur_rem_liked = max(0, DAILY_LIKE_LIMIT - cur_today_liked)
+
+col_s1, col_s2 = st.columns([3, 1])
+with col_s1:
+    if cur_rem_liked == 0:
+        st.error(f"🛑 **오늘 일일 최대 좋아요 한도 도달:** `{cur_today_liked:,} / {DAILY_LIKE_LIMIT:,}회` (오늘 추가 작업 불가, 내일 리셋됩니다)")
+    else:
+        st.info(f"💖 **오늘 누적 좋아요 현황:** `{cur_today_liked:,} / {DAILY_LIKE_LIMIT:,}회` (오늘 잔여: **{cur_rem_liked:,}회** 가능)")
+with col_s2:
+    if st.button("↺ 오늘 카운트 초기화", key="btn_reset_daily"):
+        reset_today_liked_count()
+        st.rerun()
+
+col_opt1, col_opt2, col_opt3 = st.columns([1.5, 1, 1.5])
 
 with col_opt1:
     day_map = {
-        "화요일 (tue - 기본)": "tue",
         "월요일 (mon)": "mon",
+        "화요일 (tue)": "tue",
         "수요일 (wed)": "wed",
         "목요일 (thu)": "thu",
         "금요일 (fri)": "fri",
@@ -171,12 +187,17 @@ with col_opt1:
         "일요일 (sun)": "sun",
         "완결작 (com)": "com"
     }
-    sel_day_label = st.selectbox("연재 요일", list(day_map.keys()), index=0)
-    day_code = day_map[sel_day_label]
+    sel_day_labels = st.multiselect(
+        "연재 요일 (다중 선택 가능)",
+        options=list(day_map.keys()),
+        default=["화요일 (tue)"],
+        help="여러 요일을 선택하면 모든 해당 요일의 글 목록을 중복 없이 통합 수집합니다."
+    )
+    sel_day_codes = [day_map[lbl] for lbl in sel_day_labels]
 
 with col_opt2:
     order_map = {
-        "최신순 (PUBLISH_TIME - 기본)": "PUBLISH_TIME",
+        "최신순 (PUBLISH_TIME)": "PUBLISH_TIME",
         "인기순 (POPULARITY)": "POPULARITY"
     }
     sel_order_label = st.selectbox("정렬 기준", list(order_map.keys()), index=0)
@@ -198,10 +219,13 @@ with col_opt3:
 col_btn1, col_btn2 = st.columns([1, 1])
 with col_btn1:
     if st.button("📋 1. 연재 글 목록 불러오기", type="secondary"):
-        with st.spinner(f"'{sel_day_label}' 연재 글 목록을 브런치에서 실시간 수집 중..."):
-            items = fetch_serial_articles(day=day_code, order=order_code)
-            st.session_state.articles = items
-            st.success(f"총 {len(items)}개의 연재 글 목록을 성공적으로 불러왔습니다!")
+        if not sel_day_codes:
+            st.warning("수집할 연재 요일을 최소 1개 이상 선택해주세요!")
+        else:
+            with st.spinner(f"선택한 요일 목록({', '.join(sel_day_labels)})의 글을 브런치에서 실시간 수집 중..."):
+                items = fetch_multiple_days_articles(days=sel_day_codes, order=order_code)
+                st.session_state.articles = items
+                st.success(f"총 {len(items)}개의 연재 글 목록을 성공적으로 불러왔습니다!")
 
 with col_btn2:
     start_auto_like = st.button("🚀 2. 랜덤 간격 자동 좋아요 시작", type="primary")
@@ -219,6 +243,7 @@ if st.session_state.articles:
             df_rows = [
                 {
                     "#": idx + 1,
+                    "요일": a.get("source_day", "-"),
                     "글 제목": a["article_title"],
                     "작가": a["user_name"],
                     "매거진": a["magazine_title"],
@@ -238,6 +263,7 @@ if st.session_state.articles:
             df_done = [
                 {
                     "#": idx + 1,
+                    "요일": a.get("source_day", "-"),
                     "글 제목": a["article_title"],
                     "작가": a["user_name"],
                     "매거진": a["magazine_title"],
@@ -255,6 +281,11 @@ if st.session_state.articles:
 # 3단계: 자동 좋아요 실시간 실행
 # ----------------------------------------------------
 if start_auto_like:
+    can_proceed, today_cnt, remaining = can_like_today(DAILY_LIKE_LIMIT)
+    if not can_proceed:
+        st.warning(f"🛑 오늘 이미 일일 최대 좋아요 한도({DAILY_LIKE_LIMIT:,}회 중 {today_cnt:,}회)를 모두 달성하였습니다. 카카오/브런치 계정 보호를 위해 내일 다시 실행해주세요.")
+        st.stop()
+
     if not st.session_state.articles:
         st.warning("먼저 [1. 연재 글 목록 불러오기]를 눌러 글 목록을 조회해주세요.")
     else:
@@ -273,11 +304,12 @@ if start_auto_like:
         st.markdown("---")
         st.markdown("### 📊 실시간 실행 현황")
 
-        col_m1, col_m2, col_m3, col_m4 = st.columns(4)
+        col_m1, col_m2, col_m3, col_m4, col_m5 = st.columns(5)
         col_m1.metric("총 대상 글", f"{total}건")
         m_success = col_m2.metric("성공 💖", "0건")
         m_skip = col_m3.metric("스킵(이미 누름) ℹ️", "0건")
         m_fail = col_m4.metric("실패 ❌", "0건")
+        m_daily = col_m5.metric("오늘 누적 좋아요", f"{today_cnt} / {DAILY_LIKE_LIMIT}회")
 
         progress_bar = st.progress(0)
         current_status = st.empty()
@@ -298,6 +330,12 @@ if start_auto_like:
 
         try:
             for i, article in enumerate(articles):
+                cur_cnt = get_today_liked_count()
+                if cur_cnt >= DAILY_LIKE_LIMIT:
+                    logs.append(f"[{time.strftime('%H:%M:%S')}] 🛑 일일 최대 좋아요 한도({DAILY_LIKE_LIMIT}회)에 도달하여 작업을 안전하게 자동 중단합니다.")
+                    st.warning(f"일일 최대 한도({DAILY_LIKE_LIMIT}회)에 도달하여 작업이 안전하게 자동 중단되었습니다.")
+                    break
+
                 title = article["article_title"]
                 author = article["user_name"]
                 url = article["url"]
@@ -318,7 +356,16 @@ if start_auto_like:
                     success += 1
                     article["status"] = "좋아요 완료"
                     st.session_state.completed_keys.add(url)
-                    logs.append(f"[{now_str}] 💖 [성공] '{title}' ({author}) 우측 상단 하트 클릭 완료")
+                    new_today = record_daily_like()
+                    m_daily.metric("오늘 누적 좋아요", f"{new_today} / {DAILY_LIKE_LIMIT}회")
+                    logs.append(f"[{now_str}] 💖 [성공] '{title}' ({author}) 우측 상단 하트 클릭 완료 (오늘 누적: {new_today}/{DAILY_LIKE_LIMIT}회)")
+
+                    if new_today >= DAILY_LIKE_LIMIT:
+                        logs.append(f"[{now_str}] 🛑 오늘 최대 좋아요 한도({DAILY_LIKE_LIMIT}회)를 모두 달성하였습니다!")
+                        m_success.metric("성공 💖", f"{success}건")
+                        progress_bar.progress((i + 1) / total)
+                        log_box.code("\n".join(reversed(logs[-10:])), language="text")
+                        break
                 elif res_code == "ALREADY_LIKED":
                     skipped += 1
                     article["status"] = "이미 좋아요됨"
@@ -343,7 +390,6 @@ if start_auto_like:
                 log_box.code("\n".join(reversed(logs[-10:])), language="text")
 
                 # 새로 좋아요를 누른 경우(LIKED)에만 1초 ~ 30초 무작위 지연 대기
-                # 이미 좋아요가 눌러져 있던 글(ALREADY_LIKED)은 대기 없이 즉시 다음 글로 진행
                 if res_code == "LIKED" and i < total - 1:
                     wait_time = random.randint(min_sec, max_sec)
                     for rem in range(wait_time, 0, -1):

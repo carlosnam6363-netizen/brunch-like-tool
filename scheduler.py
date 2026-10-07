@@ -14,6 +14,7 @@ import threading
 import requests
 from typing import List, Dict, Callable, Optional, Tuple, Union
 from brunch_api import like_article_api, parse_cookie_string
+from daily_stats import get_today_liked_count, record_daily_like, DAILY_LIKE_LIMIT
 
 
 class LikeScheduler:
@@ -25,10 +26,12 @@ class LikeScheduler:
         interval_seconds: Optional[int] = None,
         bot=None,
         cookies: Optional[Union[str, dict]] = None,
+        daily_limit: int = DAILY_LIKE_LIMIT,
         log_callback: Optional[Callable[[str, str], None]] = None,
         article_update_callback: Optional[Callable[[int, str], None]] = None,
         article_completed_callback: Optional[Callable[[Dict, str], None]] = None,
         countdown_callback: Optional[Callable[[int, int], None]] = None,
+        daily_stats_callback: Optional[Callable[[int, int], None]] = None,
         on_finish_callback: Optional[Callable[[int, int, int], None]] = None,
         get_interval_callback: Optional[Callable[[], Tuple[int, int]]] = None
     ):
@@ -39,14 +42,17 @@ class LikeScheduler:
         :param interval_seconds: 고정 간격 초 (전달 시 min=max 설정)
         :param bot: BrunchBot 인스턴스 (브라우저 모드)
         :param cookies: 브런치 쿠키 문자열 또는 dict (순수 API 모드)
+        :param daily_limit: 1일 최대 좋아요 한도 (기본: 1,498회)
         :param log_callback: 로그 출력 콜백 (message, level)
         :param article_update_callback: 글 상태 업데이트 콜백 (index, status)
         :param article_completed_callback: 글 완료(성공/스킵) 시 호출되는 콜백 (article, status)
         :param countdown_callback: 남은 초 콜백 (remaining_seconds, total_wait_seconds)
+        :param daily_stats_callback: 일일 누적치 갱신 콜백 (today_count, daily_limit)
         :param on_finish_callback: 전체 완료 콜백 (success_count, skipped_count, failed_count)
         :param get_interval_callback: 실시간 간격 조회 콜백 (func -> (min, max))
         """
         self.articles = articles
+        self.daily_limit = max(1, daily_limit)
         if interval_seconds is not None:
             self.interval_min = interval_seconds
             self.interval_max = interval_seconds
@@ -60,6 +66,7 @@ class LikeScheduler:
         self.article_update_callback = article_update_callback
         self.article_completed_callback = article_completed_callback
         self.countdown_callback = countdown_callback
+        self.daily_stats_callback = daily_stats_callback
         self.on_finish_callback = on_finish_callback
         self.get_interval_callback = get_interval_callback
 
@@ -166,10 +173,36 @@ class LikeScheduler:
         mode_str = "순수 HTTP API(웹/클라우드)" if self.cookies else "셀레니움 브라우저"
         self._sync_interval()
         delay_desc = f"{self.interval_min}~{self.interval_max}초 랜덤 간격" if self.interval_min != self.interval_max else f"{self.interval_min}초 간격"
-        self.log(f"[{mode_str} 모드] 총 {total}개의 글에 대해 {delay_desc} 좋아요 작업을 시작합니다.", "INFO")
+        
+        # 일일 한도 사전 점검
+        today_liked = get_today_liked_count()
+        if today_liked >= self.daily_limit:
+            self.log(
+                f"🛑 [일일 한도 도달] 오늘 누적 좋아요({today_liked}회)가 1일 최대 한도({self.daily_limit}회)에 이미 도달하였습니다. 작업을 시작하지 않습니다.",
+                "WARN"
+            )
+            self.is_running = False
+            if self.on_finish_callback:
+                self.on_finish_callback(0, 0, 0)
+            return
+
+        self.log(
+            f"[{mode_str} 모드] 총 {total}개의 글에 대해 {delay_desc} 좋아요 작업을 시작합니다. "
+            f"(오늘 누적: {today_liked}/{self.daily_limit}회, 잔여: {self.daily_limit - today_liked}회)",
+            "INFO"
+        )
 
         for idx, article in enumerate(self.articles):
             if self._stop_event.is_set():
+                break
+
+            # 루프 진입 시 일일 한도 재점검
+            today_liked = get_today_liked_count()
+            if today_liked >= self.daily_limit:
+                self.log(
+                    f"🛑 [일일 한도 도달] 오늘 누적 좋아요({today_liked}회)가 최대 한도({self.daily_limit}회)에 도달하여 작업을 안전하게 자동 중단합니다.",
+                    "WARN"
+                )
                 break
 
             # 일시 정지 대기
@@ -201,12 +234,30 @@ class LikeScheduler:
                 result_code, message = "ERROR", str(e)
 
             if result_code == "LIKED":
+                new_today = record_daily_like()
+                if self.daily_stats_callback:
+                    try:
+                        self.daily_stats_callback(new_today, self.daily_limit)
+                    except Exception:
+                        pass
                 self.success_count += 1
                 status_str = "좋아요 완료"
                 article["status"] = status_str
-                self.log(f"[{idx + 1}/{total}] [성공] '{title}' 우측 상단 하트 좋아요 완료 💖", "SUCCESS")
+                self.log(
+                    f"[{idx + 1}/{total}] [성공] '{title}' 우측 상단 하트 좋아요 완료 💖 (오늘 누적: {new_today}/{self.daily_limit}회)",
+                    "SUCCESS"
+                )
                 if self.article_completed_callback:
                     self.article_completed_callback(article, status_str)
+
+                if new_today >= self.daily_limit:
+                    self.log(
+                        f"🛑 [일일 한도 달성] 오늘 최대 좋아요 한도({self.daily_limit}회)를 모두 달성하였습니다! 계정 보호를 위해 작업을 안전하게 자동 종료합니다.",
+                        "WARN"
+                    )
+                    if self.article_update_callback:
+                        self.article_update_callback(idx, status_str, article)
+                    break
             elif result_code == "ALREADY_LIKED":
                 self.skipped_count += 1
                 status_str = "이미 좋아요됨"

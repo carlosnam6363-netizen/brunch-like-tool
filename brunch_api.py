@@ -170,6 +170,77 @@ def fetch_serial_articles(
     return articles
 
 
+def fetch_multiple_days_articles(
+    days: List[str],
+    order: str = "PUBLISH_TIME",
+    max_count: Optional[int] = None,
+    progress_callback: Optional[callable] = None,
+    session: Optional[requests.Session] = None
+) -> List[Dict]:
+    """
+    여러 요일의 연재글 목록을 순차적으로 수집하여 중복 없이 통합 리스트로 반환합니다.
+    :param days: 수집할 요일 목록 (예: ['mon', 'tue', 'wed'] 또는 ['화요일', '수요일'])
+    :param order: 정렬 기준 ('PUBLISH_TIME' 또는 'POPULARITY')
+    :param max_count: 전체 최대 수집 건수 (None이면 전체)
+    :param progress_callback: 진행 상태 콜백
+    :param session: 재사용할 requests.Session 객체
+    :return: 중복 제거된 통합 글 리스트
+    """
+    if not days:
+        return []
+
+    http_session = session or requests.Session()
+    combined_articles = []
+    seen_keys = set()
+    total_days = len(days)
+
+    try:
+        for d_idx, day_str in enumerate(days):
+            day_code = normalize_day(day_str)
+
+            def sub_callback(count):
+                if progress_callback:
+                    try:
+                        progress_callback(f"[{d_idx + 1}/{total_days} 요일({day_str})] {count}건 수집 중 (누적: {len(combined_articles) + count}건)")
+                    except Exception:
+                        progress_callback(len(combined_articles) + count)
+
+            needed = (max_count - len(combined_articles)) if max_count else None
+            day_items = fetch_serial_articles(
+                day=day_code,
+                order=order,
+                max_count=needed,
+                progress_callback=sub_callback,
+                session=http_session
+            )
+
+            for item in day_items:
+                key = f"{item.get('user_id')}_{item.get('article_no')}"
+                if key not in seen_keys:
+                    seen_keys.add(key)
+                    item["source_day"] = day_str
+                    combined_articles.append(item)
+                    if max_count and len(combined_articles) >= max_count:
+                        break
+
+            if progress_callback:
+                try:
+                    progress_callback(f"[{d_idx + 1}/{total_days} 요일({day_str})] 수집 완료 (누적: {len(combined_articles)}건)")
+                except Exception:
+                    progress_callback(len(combined_articles))
+
+            if max_count and len(combined_articles) >= max_count:
+                break
+    except Exception as e:
+        print(f"[API Error] 다중 요일 글 목록 수집 실패: {e}")
+    finally:
+        if not session:
+            http_session.close()
+
+    return combined_articles
+
+
+
 def check_user_session(cookies: Union[str, dict], session: Optional[requests.Session] = None) -> Tuple[bool, Optional[str]]:
     """
     제공된 쿠키가 현재 브런치에 유효하게 로그인된 세션인지 확인합니다.
