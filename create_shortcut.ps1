@@ -19,3 +19,9 @@ $s3.TargetPath = "C:\Users\user\.gemini\antigravity\scratch\brunch-like-tool\log
 $s3.WorkingDirectory = "C:\Users\user\.gemini\antigravity\scratch\brunch-like-tool"
 $s3.IconLocation = "$env:SystemRoot\System32\shell32.dll,105"
 $s3.Save()
+
+$s4 = $wsh.CreateShortcut("$desktop\브런치 쿠키 메모장 직접 입력.lnk")
+$s4.TargetPath = "C:\Users\user\.gemini\antigravity\scratch\brunch-like-tool\open_cookie_file.bat"
+$s4.WorkingDirectory = "C:\Users\user\.gemini\antigravity\scratch\brunch-like-tool"
+$s4.IconLocation = "$env:SystemRoot\System32\notepad.exe,0"
+$s4.Save()

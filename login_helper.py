@@ -27,20 +27,13 @@ COOKIE_FILE = os.path.join(PROFILE_DIR, "last_cookie.txt")
 
 
 def save_and_verify(cookie_str: str) -> bool:
-    """쿠키 검증 후 유효할 때만 파일에 저장"""
+    """쿠키 검증 후 파일에 저장 (사용자 수동 입력 차단 방지)"""
     cookie_str = cookie_str.strip()
     if not cookie_str:
         print("❌ 입력된 쿠키가 없습니다.")
         return False
 
-    is_ok, user = check_user_session(cookie_str)
-    if not is_ok:
-        print("\n❌ [인증 실패] 유효한 로그인 세션을 확인할 수 없습니다.")
-        print(f"   서버 응답: {user}")
-        print("   👉 브런치에 정상적으로 로그인된 상태의 쿠키인지 다시 확인해주세요.\n")
-        return False
-
-    # 유효할 때만 파일 저장
+    # 1. 파일에 우선 즉시 저장
     try:
         with open(COOKIE_FILE, "w", encoding="utf-8") as f:
             f.write(cookie_str)
@@ -48,11 +41,16 @@ def save_and_verify(cookie_str: str) -> bool:
         print(f"❌ 파일 저장 실패: {e}")
         return False
 
+    # 2. 세션 검증 시도
+    is_ok, user = check_user_session(cookie_str)
     print("\n" + "=" * 65)
-    print(f"  ✨ [인증 성공] '{user}' 작가님 계정으로 확인되었습니다!")
-    print(f"  💾 쿠키 저장 완료: {COOKIE_FILE}")
+    if is_ok:
+        print(f"  ✨ [인증 성공] '{user}' 작가님 계정으로 확인되었습니다!")
+    else:
+        print(f"  💾 쿠키 저장 완료 (세션 확인 응답: {user})")
+    print(f"  📁 저장 경로: {COOKIE_FILE}")
     print("=" * 65)
-    print("\n🎉 모든 셋팅이 완료되었습니다!")
+    print("\n🎉 쿠키 저장이 완료되었습니다!")
     print("   매일 아침 06:00에 이 저장된 쿠키를 이용해 자동으로 좋아요가 실행됩니다.")
     print("   (PC를 켜두시면 스스로 작동하며, 창은 닫으셔도 됩니다.)\n")
     return True
