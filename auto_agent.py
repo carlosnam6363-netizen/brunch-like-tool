@@ -127,12 +127,12 @@ def save_completed_cache(completed_keys: set, completed_articles: list):
 
 def calculate_next_morning_time(base_date: Optional[datetime] = None) -> datetime:
     """
-    지정된 날짜(기본: 내일)의 오전 08:00 실행 시각을 계산합니다.
-    (사람처럼 자연스러운 패턴을 위해 08:00:00부터 08:03:00 사이 미세 지터 적용)
+    지정된 날짜(기본: 내일)의 오전 06:00 실행 시각을 계산합니다.
+    (사람처럼 자연스러운 패턴을 위해 06:00:00부터 06:03:00 사이 미세 지터 적용)
     """
     now = base_date or datetime.now()
     rand_sec = random.randint(0, 180)  # 0초 ~ 3분 미세 랜덤
-    target = datetime(now.year, now.month, now.day, 8, 0, 0) + timedelta(seconds=rand_sec)
+    target = datetime(now.year, now.month, now.day, 6, 0, 0) + timedelta(seconds=rand_sec)
     return target
 
 
@@ -275,7 +275,7 @@ class BrunchAutoAgent:
         """
         logger.info("=" * 65)
         logger.info("🤖 [Brunch Auto Agent] 자동 실행 데몬 모드를 가동합니다.")
-        logger.info("⏰ 매일 아침 08:00에 자동으로 깨어나 좋아요를 실행합니다.")
+        logger.info("⏰ 매일 아침 06:00에 자동으로 깨어나 좋아요를 실행합니다.")
         logger.info("🎲 일일 최대 좋아요: 1,450 ~ 1,500회 사이 매일 랜덤 한도 적용")
         logger.info("⏱️ 각 글 처리 간격: 1초 ~ 30초 사이 랜덤 지연")
         logger.info("=" * 65)
@@ -293,20 +293,20 @@ class BrunchAutoAgent:
             cur_liked = get_today_liked_count()
             daily_limit = get_today_daily_limit()
 
-            # 오늘 아직 목표치에 도달하지 않았고, 현재 시각이 08:00 이후이거나 미실행(0건)이라면 오늘 세션 우선 실행
+            # 오늘 아직 목표치에 도달하지 않았고, 현재 시각이 06:00 이후이거나 미실행(0건)이라면 오늘 세션 우선 실행
             if cur_liked < daily_limit:
-                if (now.hour >= 8) or (cur_liked == 0):
+                if (now.hour >= 6) or (cur_liked == 0):
                     logger.info("⚡ 금일 실행 조건을 만족하여 자동 세션을 가동합니다.")
                     self.run_today_session()
                     # 실행 후 시간 재확인
                     now = datetime.now()
 
-            # 내일 아침 08:00 다음 실행 목표 시각 계산
+            # 내일 아침 06:00 다음 실행 목표 시각 계산
             tomorrow = now + timedelta(days=1)
             next_wake_time = calculate_next_morning_time(tomorrow)
 
-            # 만약 오늘 아직 08시 이전이라면, 오늘 아침 시각으로 설정
-            if now.hour < 8 and cur_liked < daily_limit:
+            # 만약 오늘 아직 06시 이전이라면, 오늘 아침 시각으로 설정
+            if now.hour < 6 and cur_liked < daily_limit:
                 today_wake = calculate_next_morning_time(now)
                 if today_wake > now:
                     next_wake_time = today_wake

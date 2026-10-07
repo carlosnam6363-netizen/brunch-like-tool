@@ -27,14 +27,21 @@ COOKIE_FILE = os.path.join(PROFILE_DIR, "last_cookie.txt")
 
 
 def save_and_verify(cookie_str: str) -> bool:
-    """쿠키 검증 후 파일에 저장"""
+def save_and_verify(cookie_str: str) -> bool:
+    """쿠키 검증 후 유효할 때만 파일에 저장"""
     cookie_str = cookie_str.strip()
     if not cookie_str:
         print("❌ 입력된 쿠키가 없습니다.")
         return False
 
     is_ok, user = check_user_session(cookie_str)
-    # 파일 저장
+    if not is_ok:
+        print("\n❌ [인증 실패] 유효한 로그인 세션을 확인할 수 없습니다.")
+        print(f"   서버 응답: {user}")
+        print("   👉 브런치에 정상적으로 로그인된 상태의 쿠키인지 다시 확인해주세요.\n")
+        return False
+
+    # 유효할 때만 파일 저장
     try:
         with open(COOKIE_FILE, "w", encoding="utf-8") as f:
             f.write(cookie_str)
@@ -43,14 +50,11 @@ def save_and_verify(cookie_str: str) -> bool:
         return False
 
     print("\n" + "=" * 65)
-    if is_ok:
-        print(f"  ✨ [인증 성공] '{user}' 작가님 계정으로 확인되었습니다!")
-    else:
-        print(f"  ⚠️ [세션 안내] 검증 응답: {user}")
+    print(f"  ✨ [인증 성공] '{user}' 작가님 계정으로 확인되었습니다!")
     print(f"  💾 쿠키 저장 완료: {COOKIE_FILE}")
     print("=" * 65)
     print("\n🎉 모든 셋팅이 완료되었습니다!")
-    print("   내일 아침 08:00에 이 저장된 쿠키를 이용해 자동으로 좋아요가 실행됩니다.")
+    print("   매일 아침 06:00에 이 저장된 쿠키를 이용해 자동으로 좋아요가 실행됩니다.")
     print("   (PC를 켜두시면 스스로 작동하며, 창은 닫으셔도 됩니다.)\n")
     return True
 
@@ -58,6 +62,7 @@ def save_and_verify(cookie_str: str) -> bool:
 def interactive_browser_login():
     """크롬 브라우저를 띄워 카카오 로그인 유도 후 세션 추출"""
     print("\n[1/3] 브런치 로그인 전용 크롬 창을 띄웁니다. 잠시만 기다려주세요...")
+    bot = None
     try:
         bot = BrunchBot(browser_type="chrome", profile_dir=PROFILE_DIR)
         driver = bot.init_driver(headless=False)
@@ -68,29 +73,34 @@ def interactive_browser_login():
         return
 
     print("\n[2/3] 브라우저 창이 열렸습니다!")
-    print("      👉 브런치 화면에서 [시작하기] 또는 [로그인]을 눌러")
-    print("         카카오 계정으로 로그인을 완료해주세요.")
+    print("      👉 브런치 화면 우측 상단의 [시작하기] 또는 [로그인]을 눌러")
+    print("         카카오 계정으로 로그인을 '완료'해주세요.")
+    print("         (로그인 완료 후 프로필 사진이 보이면 성공입니다)")
     print("\n-----------------------------------------------------------")
-    print(" 로그인을 완료하신 후, 이 콘솔 창으로 돌아와 [Enter] 키를 누르세요.")
-    print("-----------------------------------------------------------")
 
-    try:
-        input("\n[Enter] 키를 누르면 로그인을 확인하고 쿠키를 자동 저장합니다: ")
-    except Exception:
-        pass
+    while True:
+        try:
+            input("👉 카카오 로그인을 끝마치신 후, 이 콘솔 창에서 [Enter]를 누르세요: ")
+        except Exception:
+            pass
 
-    print("\n[3/3] 브라우저 세션에서 쿠키를 추출하고 인증을 검증합니다...")
-    try:
-        driver.get("https://brunch.co.kr")
-        time.sleep(1.5)
-        cookies = driver.get_cookies()
-        cookie_parts = [f"{c['name']}={c['value']}" for c in cookies]
-        cookie_str = "; ".join(cookie_parts)
+        print("\n[3/3] 브라우저 세션에서 쿠키를 추출하고 인증을 검증합니다...")
+        try:
+            cookies = driver.get_cookies()
+            cookie_parts = [f"{c['name']}={c['value']}" for c in cookies]
+            cookie_str = "; ".join(cookie_parts)
 
-        save_and_verify(cookie_str)
-    except Exception as e:
-        print(f"❌ 쿠키 추출 중 오류 발생: {e}")
-    finally:
+            if save_and_verify(cookie_str):
+                break
+            else:
+                retry = input("다시 시도하시겠습니까? (Y/n) [기본: Y]: ").strip().lower()
+                if retry == "n":
+                    break
+        except Exception as e:
+            print(f"❌ 쿠키 추출 중 오류 발생: {e}")
+            break
+
+    if bot:
         bot.close()
         print("브라우저 창을 정리했습니다.")
 
