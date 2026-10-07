@@ -57,9 +57,10 @@ if "articles" not in st.session_state:
     st.session_state.articles = []
 if "cookie_str" not in st.session_state:
     default_cookie = os.getenv("BRUNCH_COOKIE", "")
-    if not default_cookie and hasattr(st, "secrets") and "BRUNCH_COOKIE" in st.secrets:
+    if not default_cookie:
         try:
-            default_cookie = str(st.secrets["BRUNCH_COOKIE"])
+            if hasattr(st, "secrets") and "BRUNCH_COOKIE" in st.secrets:
+                default_cookie = str(st.secrets["BRUNCH_COOKIE"])
         except Exception:
             pass
     cache_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "brunch_profile", "last_cookie.txt")
