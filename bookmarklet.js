@@ -2,19 +2,34 @@ javascript:(function(){
     if (window.__brunchLikeBotActive) { alert('이미 실행 중입니다.'); return; }
     window.__brunchLikeBotActive = true;
     
+    // 일일 통계 로드 (localStorage)
+    const DAILY_LIMIT = 1498;
+    const todayStr = new Date().toISOString().slice(0, 10);
+    let dailyData = { date: todayStr, count: 0 };
+    try {
+        const saved = JSON.parse(localStorage.getItem('blb_daily_stats') || '{}');
+        if (saved && saved.date === todayStr) {
+            dailyData.count = parseInt(saved.count) || 0;
+        }
+    } catch(e) {}
+
     const panel = document.createElement('div');
     panel.id = 'brunch-like-bot-panel';
-    panel.style.cssText = 'position:fixed;top:20px;right:20px;width:340px;background:#ffffff;border:2px solid #00c6be;border-radius:12px;box-shadow:0 8px 30px rgba(0,0,0,0.25);z-index:999999;padding:16px;font-family:-apple-system,BlinkMacSystemFont,sans-serif;color:#0f172a;font-size:13px;';
+    panel.style.cssText = 'position:fixed;top:15px;right:15px;max-width:92vw;width:340px;background:#ffffff;border:2px solid #00c6be;border-radius:12px;box-shadow:0 8px 30px rgba(0,0,0,0.25);z-index:999999;padding:14px;font-family:-apple-system,BlinkMacSystemFont,sans-serif;color:#0f172a;font-size:13px;';
     
     panel.innerHTML = `
-        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px;border-bottom:1px solid #e2e8f0;padding-bottom:8px;">
-            <b style="font-size:15px;color:#00c6be;">💖 브런치 연재글 자동 좋아요</b>
+        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px;border-bottom:1px solid #e2e8f0;padding-bottom:6px;">
+            <b style="font-size:14px;color:#00c6be;">💖 브런치 연재글 자동 좋아요</b>
             <button id="blb-close" style="border:none;background:none;font-size:18px;cursor:pointer;color:#94a3b8;">&times;</button>
+        </div>
+        <div style="margin-bottom:6px;background:#f0fdf4;padding:6px 8px;border-radius:6px;border:1px solid #bbf7d0;font-size:12px;color:#166534;">
+            <b id="blb-daily-lbl">💖 오늘 누적: ${dailyData.count} / ${DAILY_LIMIT}회 (잔여: ${Math.max(0, DAILY_LIMIT - dailyData.count)}회)</b>
         </div>
         <div style="margin-bottom:8px;">
             <label style="font-weight:600;">연재 요일: </label>
-            <select id="blb-day" style="padding:4px 8px;border-radius:6px;border:1px solid #cbd5e1;font-size:12px;">
-                <option value="TUESDAY" selected>화요일 (tue - 기본)</option>
+            <select id="blb-day" style="padding:4px 8px;border-radius:6px;border:1px solid #cbd5e1;font-size:12px;width:100%;margin-top:2px;">
+                <option value="ALL" selected>🌟 전체 요일 (월~일+완결 통합)</option>
+                <option value="TUESDAY">화요일 (tue)</option>
                 <option value="MONDAY">월요일 (mon)</option>
                 <option value="WEDNESDAY">수요일 (wed)</option>
                 <option value="THURSDAY">목요일 (thu)</option>
@@ -38,10 +53,16 @@ javascript:(function(){
     let stopRequested = false;
     const logBox = panel.querySelector('#blb-status');
     const startBtn = panel.querySelector('#blb-start');
+    const dailyLbl = panel.querySelector('#blb-daily-lbl');
     
     function log(msg) {
         const time = new Date().toTimeString().split(' ')[0];
         logBox.innerText = `[${time}] ${msg}\n` + logBox.innerText.slice(0, 600);
+    }
+
+    function updateDailyLbl() {
+        const rem = Math.max(0, DAILY_LIMIT - dailyData.count);
+        dailyLbl.innerText = `💖 오늘 누적: ${dailyData.count} / ${DAILY_LIMIT}회 (잔여: ${rem}회)`;
     }
     
     panel.querySelector('#blb-close').onclick = () => {
@@ -56,36 +77,65 @@ javascript:(function(){
             startBtn.innerText = '중단 요청됨...';
             return;
         }
+
+        if (dailyData.count >= DAILY_LIMIT) {
+            alert(`오늘 이미 일일 최대 좋아요 한도(${DAILY_LIMIT}회)를 모두 달성하였습니다.`);
+            return;
+        }
+
         isRunning = true;
         stopRequested = false;
         startBtn.style.background = '#ef4444';
         startBtn.innerText = '⏹️ 좋아요 작업 중단';
         
-        const day = panel.querySelector('#blb-day').value;
+        const dayChoice = panel.querySelector('#blb-day').value;
         const minSec = Math.max(1, parseInt(panel.querySelector('#blb-min').value) || 1);
         const maxSec = Math.max(minSec, parseInt(panel.querySelector('#blb-max').value) || 30);
         
-        log(`'${day}' 연재 글 목록 수집 중...`);
+        const daysToFetch = (dayChoice === 'ALL') 
+            ? ['MONDAY','TUESDAY','WEDNESDAY','THURSDAY','FRIDAY','SATURDAY','SUNDAY','COMPLETE']
+            : [dayChoice];
+
+        log(`글 목록 수집 중... (${daysToFetch.length}개 요일)`);
         try {
-            const listUrl = `https://api.brunch.co.kr/v2/serial-brunchbook/all?dayOfWeek=${day}&orderKeyword=PUBLISH_TIME&serialStatus=${day==='COMPLETE'?'COMPLETE':'ONGOING'}`;
-            const listResp = await fetch(listUrl, { credentials: 'include' });
-            const listJson = await listResp.json();
-            const items = (listJson.data && listJson.data.list) || [];
+            let allItems = [];
+            let seen = new Set();
+            for (const d of daysToFetch) {
+                if (stopRequested) break;
+                try {
+                    const listUrl = `https://api.brunch.co.kr/v2/serial-brunchbook/all?dayOfWeek=${d}&orderKeyword=PUBLISH_TIME&serialStatus=${d==='COMPLETE'?'COMPLETE':'ONGOING'}`;
+                    const listResp = await fetch(listUrl, { credentials: 'include' });
+                    const listJson = await listResp.json();
+                    const items = (listJson.data && listJson.data.list) || [];
+                    for (const it of items) {
+                        const key = `${it.userId}_${it.articleNo}`;
+                        if (!seen.has(key)) {
+                            seen.add(key);
+                            allItems.push(it);
+                        }
+                    }
+                } catch(e) {}
+            }
             
-            if (items.length === 0) {
+            if (allItems.length === 0) {
                 log('수집된 글이 없습니다.');
                 resetBtn();
                 return;
             }
             
-            log(`총 ${items.length}개의 글 발견! ${minSec}~${maxSec}초 랜덤 시작.`);
+            log(`총 ${allItems.length}개 글 통합 수집 완료! 작업 시작.`);
             let success = 0, skipped = 0, failed = 0;
             
-            for (let i = 0; i < items.length; i++) {
+            for (let i = 0; i < allItems.length; i++) {
                 if (stopRequested) { log('작업이 중단되었습니다.'); break; }
-                const art = items[i];
+                if (dailyData.count >= DAILY_LIMIT) {
+                    log(`🛑 일일 최대 한도(${DAILY_LIMIT}회) 도달로 자동 종료.`);
+                    break;
+                }
+
+                const art = allItems[i];
                 const pageUrl = `https://brunch.co.kr/@@${art.userId}/${art.articleNo}`;
-                log(`[${i+1}/${items.length}] '${art.articleTitle}' 확인 중...`);
+                log(`[${i+1}/${allItems.length}] '${art.articleTitle}' 확인 중...`);
                 let wasLiked = false;
 
                 try {
@@ -107,7 +157,15 @@ javascript:(function(){
                         if (likeResp.status === 200) {
                             success++;
                             wasLiked = true;
-                            log(`💖 [성공] 좋아요 완료!`);
+                            dailyData.count++;
+                            try { localStorage.setItem('blb_daily_stats', JSON.stringify(dailyData)); } catch(e){}
+                            updateDailyLbl();
+                            log(`💖 [성공] 좋아요 완료! (오늘: ${dailyData.count}/${DAILY_LIMIT}회)`);
+
+                            if (dailyData.count >= DAILY_LIMIT) {
+                                log(`🛑 오늘 최대 좋아요 한도(${DAILY_LIMIT}회) 달성!`);
+                                break;
+                            }
                         } else {
                             failed++;
                             log(`⚠️ [실패] HTTP ${likeResp.status}`);
@@ -118,8 +176,8 @@ javascript:(function(){
                     log(`❌ [오류] ${e.message}`);
                 }
                 
-                // 새로 좋아요를 누른 경우에만 랜덤 대기 (이미 누른 글은 대기 없이 즉시 진행)
-                if (wasLiked && i < items.length - 1 && !stopRequested) {
+                // 새로 좋아요를 누른 경우에만 랜덤 대기
+                if (wasLiked && i < allItems.length - 1 && !stopRequested && dailyData.count < DAILY_LIMIT) {
                     const wait = Math.floor(Math.random() * (maxSec - minSec + 1)) + minSec;
                     for (let r = wait; r > 0; r--) {
                         if (stopRequested) break;
