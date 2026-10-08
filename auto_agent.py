@@ -199,7 +199,13 @@ class BrunchAutoAgent:
                 order="PUBLISH_TIME",
                 progress_callback=lambda msg, count=None: None
             )
-            logger.info(f"총 {len(articles):,}개의 연재 글을 수집했습니다.")
+            # 요일별 수집 건수 통계
+            day_counts = {}
+            for art in articles:
+                dk = art.get("source_day_kor") or art.get("source_day", "-")
+                day_counts[dk] = day_counts.get(dk, 0) + 1
+            breakdown = ", ".join([f"{k}: {c:,}건" for k, c in day_counts.items()])
+            logger.info(f"총 {len(articles):,}개의 연재 글을 월요일~완결 순서로 수집했습니다. ({breakdown})")
         except Exception as e:
             logger.error(f"❌ 글 목록 수집 실패: {e}")
             self.is_running_task = False

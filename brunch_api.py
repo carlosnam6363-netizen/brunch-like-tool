@@ -35,6 +35,46 @@ ORDER_MAP = {
     "POPULARITY": "POPULARITY"
 }
 
+# 요일 표준 순서 정의 (월요일 -> 완결 순서)
+CANONICAL_DAY_ORDER = {
+    "MONDAY": 1,
+    "TUESDAY": 2,
+    "WEDNESDAY": 3,
+    "THURSDAY": 4,
+    "FRIDAY": 5,
+    "SATURDAY": 6,
+    "SUNDAY": 7,
+    "COMPLETE": 8,
+}
+
+DAY_KOR_MAP = {
+    "MONDAY": "월요일",
+    "TUESDAY": "화요일",
+    "WEDNESDAY": "수요일",
+    "THURSDAY": "목요일",
+    "FRIDAY": "금요일",
+    "SATURDAY": "토요일",
+    "SUNDAY": "일요일",
+    "COMPLETE": "완결작",
+}
+
+
+def sort_days_canonically(days: List[str]) -> List[str]:
+    """
+    입력된 요일 목록을 중복 없이 월요일부터 완결 순서(월->화->수->목->금->토->일->완결)로 정렬합니다.
+    """
+    if not days:
+        return []
+    seen = set()
+    unique = []
+    for d in days:
+        norm = normalize_day(d)
+        if norm not in seen:
+            seen.add(norm)
+            unique.append(d)
+    return sorted(unique, key=lambda d: CANONICAL_DAY_ORDER.get(normalize_day(d), 99))
+
+
 DEFAULT_HEADERS = {
     'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
     'Origin': 'https://brunch.co.kr',
@@ -187,30 +227,35 @@ def fetch_multiple_days_articles(
     session: Optional[requests.Session] = None
 ) -> List[Dict]:
     """
-    여러 요일의 연재글 목록을 순차적으로 수집하여 중복 없이 통합 리스트로 반환합니다.
-    :param days: 수집할 요일 목록 (예: ['mon', 'tue', 'wed'] 또는 ['화요일', '수요일'])
+    여러 요일의 연재글 목록을 월요일부터 완결 순서(월->화->수->목->금->토->일->완결)로
+    순차 수집하여 중복 없이 통합 리스트로 반환합니다.
+    :param days: 수집할 요일 목록 (어떤 순서로 전달되어도 월요일~완결 표준 순서로 자동 정렬)
     :param order: 정렬 기준 ('PUBLISH_TIME' 또는 'POPULARITY')
     :param max_count: 전체 최대 수집 건수 (None이면 전체)
     :param progress_callback: 진행 상태 콜백
     :param session: 재사용할 requests.Session 객체
-    :return: 중복 제거된 통합 글 리스트
+    :return: 월요일부터 완결 순서로 정렬된 통합 글 리스트
     """
     if not days:
         return []
 
+    # 월요일부터 완결 순서로 강제 정렬
+    sorted_days = sort_days_canonically(days)
+    total_days = len(sorted_days)
+
     http_session = session or requests.Session()
     combined_articles = []
     seen_keys = set()
-    total_days = len(days)
 
     try:
-        for d_idx, day_str in enumerate(days):
+        for d_idx, day_str in enumerate(sorted_days):
             day_code = normalize_day(day_str)
+            kor_name = DAY_KOR_MAP.get(day_code, day_str)
 
             def sub_callback(count):
                 if progress_callback:
                     try:
-                        progress_callback(f"[{d_idx + 1}/{total_days} 요일({day_str})] {count}건 수집 중 (누적: {len(combined_articles) + count}건)")
+                        progress_callback(f"[{d_idx + 1}/{total_days} {kor_name}] {count}건 수집 중 (누적: {len(combined_articles) + count}건)")
                     except Exception:
                         progress_callback(len(combined_articles) + count)
 
@@ -228,13 +273,16 @@ def fetch_multiple_days_articles(
                 if key not in seen_keys:
                     seen_keys.add(key)
                     item["source_day"] = day_str
+                    item["source_day_code"] = day_code
+                    item["source_day_kor"] = kor_name
+                    item["day_order"] = CANONICAL_DAY_ORDER.get(day_code, 99)
                     combined_articles.append(item)
                     if max_count and len(combined_articles) >= max_count:
                         break
 
             if progress_callback:
                 try:
-                    progress_callback(f"[{d_idx + 1}/{total_days} 요일({day_str})] 수집 완료 (누적: {len(combined_articles)}건)")
+                    progress_callback(f"[{d_idx + 1}/{total_days} {kor_name}] 수집 완료 (누적: {len(combined_articles)}건)")
                 except Exception:
                     progress_callback(len(combined_articles))
 

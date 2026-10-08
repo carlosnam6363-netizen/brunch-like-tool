@@ -17,7 +17,7 @@ import pandas as pd
 import streamlit as st
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-from brunch_api import fetch_serial_articles, fetch_multiple_days_articles, check_user_session, parse_cookie_string, like_article_api
+from brunch_api import fetch_serial_articles, fetch_multiple_days_articles, check_user_session, parse_cookie_string, like_article_api, sort_days_canonically
 from browser_bot import BrunchBot
 from daily_stats import get_today_liked_count, record_daily_like, can_like_today, reset_today_liked_count, DAILY_LIKE_LIMIT, get_today_daily_limit
 
@@ -194,7 +194,7 @@ with col_opt1:
         default=["화요일 (tue)"],
         help="여러 요일을 선택하면 모든 해당 요일의 글 목록을 중복 없이 통합 수집합니다."
     )
-    sel_day_codes = [day_map[lbl] for lbl in sel_day_labels]
+    sel_day_codes = sort_days_canonically([day_map[lbl] for lbl in sel_day_labels])
 
 with col_opt2:
     order_map = {
@@ -223,10 +223,16 @@ with col_btn1:
         if not sel_day_codes:
             st.warning("수집할 연재 요일을 최소 1개 이상 선택해주세요!")
         else:
-            with st.spinner(f"선택한 요일 목록({', '.join(sel_day_labels)})의 글을 브런치에서 실시간 수집 중..."):
+            with st.spinner("선택한 요일 목록의 글을 월요일~완결 순서로 브런치에서 실시간 수집 중..."):
                 items = fetch_multiple_days_articles(days=sel_day_codes, order=order_code)
                 st.session_state.articles = items
-                st.success(f"총 {len(items)}개의 연재 글 목록을 성공적으로 불러왔습니다!")
+                # 요일별 수집 건수 통계
+                day_counts = {}
+                for art in items:
+                    dk = art.get("source_day_kor") or art.get("source_day", "-")
+                    day_counts[dk] = day_counts.get(dk, 0) + 1
+                breakdown = ", ".join([f"{k}: {c:,}건" for k, c in day_counts.items()])
+                st.success(f"총 {len(items):,}개의 연재 글 목록을 월요일~완결 순서로 성공적으로 불러왔습니다! ({breakdown})")
 
 with col_btn2:
     start_auto_like = st.button("🚀 2. 랜덤 간격 자동 좋아요 시작", type="primary")
@@ -236,15 +242,15 @@ pending_list = [a for a in st.session_state.articles if a["url"] not in st.sessi
 done_list = [a for a in st.session_state.articles if a["url"] in st.session_state.completed_keys or a.get("status") in ("좋아요 완료", "이미 좋아요됨")]
 
 if st.session_state.articles:
-    st.markdown(f"#### 📑 연재 글 목록 (대기 {len(pending_list)}건 / 완료 {len(done_list)}건)")
-    tab_pend, tab_comp = st.tabs([f"📑 대기 중인 글 ({len(pending_list)}건)", f"💖 좋아요 완료 ({len(done_list)}건)"])
+    st.markdown(f"#### 📑 연재 글 목록 (대기 {len(pending_list):,}건 / 완료 {len(done_list):,}건)")
+    tab_pend, tab_comp = st.tabs([f"📑 대기 중인 글 ({len(pending_list):,}건)", f"💖 좋아요 완료 ({len(done_list):,}건)"])
     
     with tab_pend:
         if pending_list:
             df_rows = [
                 {
                     "#": idx + 1,
-                    "요일": a.get("source_day", "-"),
+                    "요일": a.get("source_day_kor") or a.get("source_day", "-"),
                     "글 제목": a["article_title"],
                     "작가": a["user_name"],
                     "매거진": a["magazine_title"],
@@ -264,7 +270,7 @@ if st.session_state.articles:
             df_done = [
                 {
                     "#": idx + 1,
-                    "요일": a.get("source_day", "-"),
+                    "요일": a.get("source_day_kor") or a.get("source_day", "-"),
                     "글 제목": a["article_title"],
                     "작가": a["user_name"],
                     "매거진": a["magazine_title"],

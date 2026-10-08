@@ -20,7 +20,7 @@ from typing import Tuple, Dict, Optional
 
 # 로컬 모듈 로드
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-from brunch_api import fetch_serial_articles, fetch_multiple_days_articles, check_user_session, normalize_day, normalize_order
+from brunch_api import fetch_serial_articles, fetch_multiple_days_articles, check_user_session, normalize_day, normalize_order, sort_days_canonically
 from browser_bot import BrunchBot
 from scheduler import LikeScheduler
 from daily_stats import get_today_liked_count, can_like_today, reset_today_liked_count, DAILY_LIKE_LIMIT
@@ -362,8 +362,9 @@ class BrunchLikeApp:
             self.scheduler.update_interval(min_sec, max_sec)
 
     def _get_selected_days(self) -> list:
-        """선택된 요일 코드 목록을 반환합니다 (예: ['mon', 'tue'])"""
-        return [code for code, var in self.day_vars.items() if var.get()]
+        """선택된 요일 코드 목록을 반환합니다 (월요일부터 완결 순서 보장)."""
+        selected = [code for code, var in self.day_vars.items() if var.get()]
+        return sort_days_canonically(selected)
 
     def _get_selected_day_names(self) -> str:
         """선택된 요일 한글 이름 문자열 반환"""
@@ -471,7 +472,7 @@ class BrunchLikeApp:
         name_dict = dict(self.day_options)
         for idx, art in enumerate(self.completed_articles):
             src_day = art.get("source_day", "-")
-            day_kor = name_dict.get(src_day, src_day)
+            day_kor = art.get("source_day_kor") or name_dict.get(src_day, src_day)
             self.tree_done.insert(
                 "",
                 tk.END,
@@ -487,7 +488,7 @@ class BrunchLikeApp:
                     art.get("done_time", "-")
                 )
             )
-        self.notebook.tab(1, text=f"💖 좋아요 완료 목록 ({len(self.completed_articles)}건)")
+        self.notebook.tab(1, text=f"💖 좋아요 완료 목록 ({len(self.completed_articles):,}건)")
 
     def _refresh_pending_tree(self):
         """대기 탭 트리를 갱신합니다."""
@@ -497,7 +498,7 @@ class BrunchLikeApp:
         name_dict = dict(self.day_options)
         for idx, art in enumerate(self.pending_articles):
             src_day = art.get("source_day", "-")
-            day_kor = name_dict.get(src_day, src_day)
+            day_kor = art.get("source_day_kor") or name_dict.get(src_day, src_day)
             self.tree_pending.insert(
                 "",
                 tk.END,
@@ -513,7 +514,7 @@ class BrunchLikeApp:
                     art.get("status", "대기중")
                 )
             )
-        self.notebook.tab(0, text=f"📑 대기 중인 글 목록 ({len(self.pending_articles)}건)")
+        self.notebook.tab(0, text=f"📑 대기 중인 글 목록 ({len(self.pending_articles):,}건)")
 
     def _fetch_articles(self):
         selected_days = self._get_selected_days()
@@ -548,16 +549,23 @@ class BrunchLikeApp:
 
                 self.pending_articles = new_pending
 
+                # 요일별 수집 건수 집계
+                day_counts = {}
+                for art in items:
+                    dk = art.get("source_day_kor") or art.get("source_day", "-")
+                    day_counts[dk] = day_counts.get(dk, 0) + 1
+                breakdown = ", ".join([f"{k}: {c:,}건" for k, c in day_counts.items()])
+
                 def update_ui():
                     self.btn_fetch.config(state="normal")
                     self._refresh_pending_tree()
                     self._refresh_done_tree()
                     self.status_lbl.config(
-                        text=f"글 목록 불러오기 완료: 대기 {len(self.pending_articles)}건 / 완료 {len(self.completed_articles)}건 (총 {len(items)}건)"
+                        text=f"수집 완료: 총 {len(items):,}건 ({breakdown}) | 대기: {len(self.pending_articles):,}건"
                     )
                     self.progress_bar.config(maximum=max(1, len(self.pending_articles)), value=0)
                     self._log(
-                        f"[{days_str}] 총 {len(items)}건 수집 완료 [대기: {len(self.pending_articles)}건 / 기완료: {len(self.completed_articles)}건]",
+                        f"[{days_str}] 총 {len(items):,}건 수집 완료 ({breakdown}) [대기: {len(self.pending_articles):,}건 / 기완료: {len(self.completed_articles):,}건]",
                         "SUCCESS"
                     )
 
