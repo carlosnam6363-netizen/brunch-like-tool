@@ -105,11 +105,20 @@ def fetch_serial_articles(
     order_code = normalize_order(order)
 
     url = f"{API_BASE_URL}/v2/serial-brunchbook/all"
-    params = {
-        "dayOfWeek": day_code,
-        "orderKeyword": order_code,
-        "serialStatus": "COMPLETE" if day_code == "COMPLETE" else "ONGOING"
-    }
+    if day_code == "COMPLETE":
+        # 완결작의 경우 브런치 API는 dayOfWeek 파라미터가 포함되면 500 에러를 반환하므로 제외합니다.
+        # 또한 완결작 정렬 시 POPULARITY 대신 LIKE_COUNT를 사용합니다.
+        order_key = "LIKE_COUNT" if order_code == "POPULARITY" else "PUBLISH_TIME"
+        params = {
+            "orderKeyword": order_key,
+            "serialStatus": "COMPLETE"
+        }
+    else:
+        params = {
+            "dayOfWeek": day_code,
+            "orderKeyword": order_code,
+            "serialStatus": "ONGOING"
+        }
 
     http_session = session or requests.Session()
     articles = []

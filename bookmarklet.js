@@ -103,7 +103,9 @@ javascript:(function(){
             for (const d of daysToFetch) {
                 if (stopRequested) break;
                 try {
-                    const listUrl = `https://api.brunch.co.kr/v2/serial-brunchbook/all?dayOfWeek=${d}&orderKeyword=PUBLISH_TIME&serialStatus=${d==='COMPLETE'?'COMPLETE':'ONGOING'}`;
+                    const listUrl = d === 'COMPLETE'
+                        ? 'https://api.brunch.co.kr/v2/serial-brunchbook/all?orderKeyword=PUBLISH_TIME&serialStatus=COMPLETE'
+                        : `https://api.brunch.co.kr/v2/serial-brunchbook/all?dayOfWeek=${d}&orderKeyword=PUBLISH_TIME&serialStatus=ONGOING`;
                     const listResp = await fetch(listUrl, { credentials: 'include' });
                     const listJson = await listResp.json();
                     const items = (listJson.data && listJson.data.list) || [];
