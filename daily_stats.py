@@ -13,8 +13,8 @@ import threading
 from datetime import datetime
 from typing import Dict, Tuple, Optional
 
-DAILY_LIMIT_MIN = 100
-DAILY_LIMIT_MAX = 200
+DAILY_LIMIT_MIN = 1400
+DAILY_LIMIT_MAX = 1400
 
 _lock = threading.Lock()
 _CACHE_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "brunch_profile")
@@ -114,9 +114,9 @@ def get_today_liked_count() -> int:
 
 
 def get_today_daily_limit() -> int:
-    """오늘 배정된 100 ~ 200회 사이의 무작위 스텔스 목표치 반환"""
+    """오늘 배정된 일일 목표치(1,400회) 반환"""
     stats = load_daily_stats()
-    return stats.get("daily_limit", 150)
+    return stats.get("daily_limit", 1400)
 
 
 def record_daily_like() -> int:
@@ -214,4 +214,4 @@ def can_like_today(limit: Optional[int] = None) -> Tuple[bool, int, int]:
 
 
 # 호환성을 위한 기본 상수 (동적 조회는 get_today_daily_limit() 사용 권장)
-DAILY_LIKE_LIMIT = 150
+DAILY_LIKE_LIMIT = 1400

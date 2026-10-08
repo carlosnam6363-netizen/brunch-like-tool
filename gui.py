@@ -176,7 +176,7 @@ class BrunchLikeApp:
         )
         browser_combo.pack(side=tk.LEFT)
 
-        # 2행: 좋아요 간격 (실시간 수정) & 일일 누적 카운터 (100~200회 스텔스 안전 한도)
+        # 2행: 좋아요 간격 (실시간 수정) & 일일 누적 카운터 (1,400회 일일 한도)
         row2 = ttk.Frame(control_frame)
         row2.pack(fill=tk.X, pady=(0, 8))
 
@@ -199,7 +199,7 @@ class BrunchLikeApp:
         # 일일 누적 카운터 표시
         self.daily_stats_lbl = ttk.Label(
             row2,
-            text="💖 오늘 누적 좋아요: 0 / 150회 (안전 한도)",
+            text="💖 오늘 누적 좋아요: 0 / 1,400회",
             font=("Malgun Gothic", 9, "bold"),
             foreground="#047857"
         )
