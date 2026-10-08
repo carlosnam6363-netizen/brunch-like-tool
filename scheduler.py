@@ -17,6 +17,27 @@ from brunch_api import like_article_api, parse_cookie_string
 from daily_stats import get_today_liked_count, record_daily_like, DAILY_LIKE_LIMIT
 
 
+def calculate_gaussian_delay(min_sec: int, max_sec: int) -> int:
+    """
+    정규분포(가우시안)를 활용하여 평균값 근처에 딜레이가 밀집되고
+    가끔 길게 머무는 인간다운 딜레이 초(int)를 반환합니다.
+    """
+    if min_sec >= max_sec:
+        return min_sec
+
+    mu = (min_sec + max_sec) / 2.0
+    sigma = max(1.0, (max_sec - min_sec) / 4.0)
+
+    # 90%는 정규분포, 10%는 약간 긴 여유 체류(인간의 딴짓/정독 모사)
+    sample = random.gauss(mu, sigma)
+    if random.random() < 0.10:
+        sample += random.uniform(2.0, max(5.0, (max_sec - min_sec) * 0.4))
+
+    # min_sec ~ max_sec * 1.3 범위로 안전하게 클램핑
+    clamped = max(min_sec, min(int(max_sec * 1.3), int(round(sample))))
+    return clamped
+
+
 class LikeScheduler:
     def __init__(
         self,
@@ -27,6 +48,7 @@ class LikeScheduler:
         bot=None,
         cookies: Optional[Union[str, dict]] = None,
         daily_limit: int = DAILY_LIKE_LIMIT,
+        batch_limit: Optional[int] = None,
         log_callback: Optional[Callable[[str, str], None]] = None,
         article_update_callback: Optional[Callable[[int, str], None]] = None,
         article_completed_callback: Optional[Callable[[Dict, str], None]] = None,
@@ -42,7 +64,8 @@ class LikeScheduler:
         :param interval_seconds: 고정 간격 초 (전달 시 min=max 설정)
         :param bot: BrunchBot 인스턴스 (브라우저 모드)
         :param cookies: 브런치 쿠키 문자열 또는 dict (순수 API 모드)
-        :param daily_limit: 1일 최대 좋아요 한도 (기본: 1,498회)
+        :param daily_limit: 1일 최대 좋아요 한도 (기본: 150회)
+        :param batch_limit: 1회 배치 세션 최대 좋아요 한도 (지정 시 도달 후 안전 종료)
         :param log_callback: 로그 출력 콜백 (message, level)
         :param article_update_callback: 글 상태 업데이트 콜백 (index, status)
         :param article_completed_callback: 글 완료(성공/스킵) 시 호출되는 콜백 (article, status)
@@ -53,6 +76,7 @@ class LikeScheduler:
         """
         self.articles = articles
         self.daily_limit = max(1, daily_limit)
+        self.batch_limit = batch_limit
         if interval_seconds is not None:
             self.interval_min = interval_seconds
             self.interval_max = interval_seconds
@@ -145,6 +169,8 @@ class LikeScheduler:
     def _execute_like(self, article: Dict) -> tuple:
         # 1. 순수 HTTP API 모드 (쿠키 제공 시)
         if self.cookies:
+            # 인간 체류 및 열람 시간 모사 (1.5 ~ 3.5초 가우시안 딜레이)
+            time.sleep(random.gauss(2.5, 0.6))
             return like_article_api(
                 article.get("user_id", ""),
                 article.get("article_no", 0),
@@ -196,12 +222,19 @@ class LikeScheduler:
             if self._stop_event.is_set():
                 break
 
-            # 루프 진입 시 일일 한도 재점검
+            # 루프 진입 시 일일 한도 및 배치 한도 재점검
             today_liked = get_today_liked_count()
             if today_liked >= self.daily_limit:
                 self.log(
                     f"🛑 [일일 한도 도달] 오늘 누적 좋아요({today_liked}회)가 최대 한도({self.daily_limit}회)에 도달하여 작업을 안전하게 자동 중단합니다.",
                     "WARN"
+                )
+                break
+
+            if self.batch_limit and self.success_count >= self.batch_limit:
+                self.log(
+                    f"🏁 [배치 한도 달성] 현재 세션 배치 목표({self.batch_limit}회)를 모두 달성하였습니다. 이상 탐지 회피를 위해 세션을 안전하게 종료합니다.",
+                    "INFO"
                 )
                 break
 
@@ -258,6 +291,15 @@ class LikeScheduler:
                     if self.article_update_callback:
                         self.article_update_callback(idx, status_str, article)
                     break
+
+                if self.batch_limit and self.success_count >= self.batch_limit:
+                    self.log(
+                        f"🏁 [배치 한도 달성] 이번 세션의 좋아요 목표({self.batch_limit}회)를 성공적으로 완수하였습니다. 브라우저를 닫고 휴식합니다.",
+                        "INFO"
+                    )
+                    if self.article_update_callback:
+                        self.article_update_callback(idx, status_str, article)
+                    break
             elif result_code == "ALREADY_LIKED":
                 self.skipped_count += 1
                 status_str = "이미 좋아요됨"
@@ -282,12 +324,12 @@ class LikeScheduler:
             if self.article_update_callback:
                 self.article_update_callback(idx, status_str, article)
 
-            # 새로 좋아요를 누른 경우(LIKED)에만 1초 ~ 30초(또는 수정된 간격) 사이 무작위 지연 대기
+            # 새로 좋아요를 누른 경우(LIKED)에만 가우시안 정규분포 지연 대기
             # 이미 좋아요를 눌렀던 글(ALREADY_LIKED)은 별도 대기 동작 없이 즉시 다음 글로 넘어감
             if result_code == "LIKED" and idx < total - 1 and not self._stop_event.is_set():
                 self._sync_interval()
-                wait_sec = random.randint(self.interval_min, self.interval_max)
-                self.log(f"🎲 다음 글까지 {wait_sec}초 랜덤 대기 중... ({self.interval_min}~{self.interval_max}초)", "INFO")
+                wait_sec = calculate_gaussian_delay(self.interval_min, self.interval_max)
+                self.log(f"🎲 [가우시안 대기] 다음 글까지 {wait_sec}초 인간 행동 모사 대기 중... ({self.interval_min}~{self.interval_max}초 범위)", "INFO")
 
                 remaining = wait_sec
                 while remaining > 0:

@@ -20,6 +20,7 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from brunch_api import fetch_serial_articles, fetch_multiple_days_articles, check_user_session, parse_cookie_string, like_article_api, sort_days_canonically
 from browser_bot import BrunchBot
 from daily_stats import get_today_liked_count, record_daily_like, can_like_today, reset_today_liked_count, DAILY_LIKE_LIMIT, get_today_daily_limit
+from scheduler import calculate_gaussian_delay
 
 st.set_page_config(
     page_title="브런치 연재글 자동 좋아요 도구",
@@ -162,14 +163,15 @@ st.markdown("### ⚙️ [2단계] 요일 및 대기 간격 설정")
 
 # 일일 누적 좋아요 현황 표시
 cur_today_liked = get_today_liked_count()
-cur_rem_liked = max(0, DAILY_LIKE_LIMIT - cur_today_liked)
+today_limit = get_today_daily_limit()
+cur_rem_liked = max(0, today_limit - cur_today_liked)
 
 col_s1, col_s2 = st.columns([3, 1])
 with col_s1:
     if cur_rem_liked == 0:
-        st.error(f"🛑 **오늘 일일 최대 좋아요 한도 도달:** `{cur_today_liked:,} / {DAILY_LIKE_LIMIT:,}회` (오늘 추가 작업 불가, 내일 리셋됩니다)")
+        st.error(f"🛑 **오늘 일일 최대 안전 한도 도달:** `{cur_today_liked:,} / {today_limit:,}회` (오늘 추가 작업 불가, 내일 리셋됩니다)")
     else:
-        st.info(f"💖 **오늘 누적 좋아요 현황:** `{cur_today_liked:,} / {DAILY_LIKE_LIMIT:,}회` (오늘 잔여: **{cur_rem_liked:,}회** 가능)")
+        st.info(f"💖 **오늘 누적 좋아요 현황:** `{cur_today_liked:,} / {today_limit:,}회` (오늘 안전 잔여: **{cur_rem_liked:,}회** 가능)")
 with col_s2:
     if st.button("↺ 오늘 카운트 초기화", key="btn_reset_daily"):
         reset_today_liked_count()
@@ -354,6 +356,7 @@ if start_auto_like:
 
                 # 좋아요 수행 (우측 상단 하트 버튼 기준)
                 if use_cookie:
+                    time.sleep(random.gauss(2.2, 0.5))
                     res_code, msg = like_article_api(user_id, article_no, st.session_state.cookie_str, session=http_session)
                 else:
                     res_code, msg = st.session_state.bot.like_article(url)
@@ -365,11 +368,11 @@ if start_auto_like:
                     article["status"] = "좋아요 완료"
                     st.session_state.completed_keys.add(url)
                     new_today = record_daily_like()
-                    m_daily.metric("오늘 누적 좋아요", f"{new_today} / {DAILY_LIKE_LIMIT}회")
-                    logs.append(f"[{now_str}] 💖 [성공] '{title}' ({author}) 우측 상단 하트 클릭 완료 (오늘 누적: {new_today}/{DAILY_LIKE_LIMIT}회)")
+                    m_daily.metric("오늘 누적 좋아요", f"{new_today} / {today_limit}회")
+                    logs.append(f"[{now_str}] 💖 [성공] '{title}' ({author}) 우측 상단 하트 클릭 완료 (오늘 누적: {new_today}/{today_limit}회)")
 
-                    if new_today >= DAILY_LIKE_LIMIT:
-                        logs.append(f"[{now_str}] 🛑 오늘 최대 좋아요 한도({DAILY_LIKE_LIMIT}회)를 모두 달성하였습니다!")
+                    if new_today >= today_limit:
+                        logs.append(f"[{now_str}] 🛑 오늘 최대 안전 한도({today_limit}회)를 모두 달성하였습니다!")
                         m_success.metric("성공 💖", f"{success}건")
                         progress_bar.progress((i + 1) / total)
                         log_box.code("\n".join(reversed(logs[-10:])), language="text")
@@ -397,12 +400,12 @@ if start_auto_like:
                 progress_bar.progress((i + 1) / total)
                 log_box.code("\n".join(reversed(logs[-10:])), language="text")
 
-                # 새로 좋아요를 누른 경우(LIKED)에만 1초 ~ 30초 무작위 지연 대기
+                # 새로 좋아요를 누른 경우(LIKED)에만 가우시안 정규분포 지연 대기
                 if res_code == "LIKED" and i < total - 1:
-                    wait_time = random.randint(min_sec, max_sec)
+                    wait_time = calculate_gaussian_delay(min_sec, max_sec)
                     for rem in range(wait_time, 0, -1):
                         countdown_box.markdown(
-                            f"⏳ **다음 글까지 랜덤 대기 중:** `{rem}초` 남음 (선택된 대기 시간: **{wait_time}초** / 범위: {min_sec}~{max_sec}초)"
+                            f"⏳ **다음 글까지 가우시안 대기 중:** `{rem}초` 남음 (적용 대기: **{wait_time}초** / 범위: {min_sec}~{max_sec}초)"
                         )
                         countdown_gauge.progress(rem / wait_time)
                         time.sleep(1)

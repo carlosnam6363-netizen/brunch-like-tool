@@ -23,7 +23,7 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from brunch_api import fetch_serial_articles, fetch_multiple_days_articles, check_user_session, normalize_day, normalize_order, sort_days_canonically
 from browser_bot import BrunchBot
 from scheduler import LikeScheduler
-from daily_stats import get_today_liked_count, can_like_today, reset_today_liked_count, DAILY_LIKE_LIMIT
+from daily_stats import get_today_liked_count, can_like_today, reset_today_liked_count, DAILY_LIKE_LIMIT, get_today_daily_limit
 
 
 class BrunchLikeApp:
@@ -176,7 +176,7 @@ class BrunchLikeApp:
         )
         browser_combo.pack(side=tk.LEFT)
 
-        # 2행: 좋아요 간격 (실시간 수정) & 일일 누적 카운터 (1,498회 한도)
+        # 2행: 좋아요 간격 (실시간 수정) & 일일 누적 카운터 (100~200회 스텔스 안전 한도)
         row2 = ttk.Frame(control_frame)
         row2.pack(fill=tk.X, pady=(0, 8))
 
@@ -188,7 +188,7 @@ class BrunchLikeApp:
         self.interval_max_var = tk.IntVar(value=30)
         spin_max = ttk.Spinbox(row2, from_=1, to=120, textvariable=self.interval_max_var, width=3)
         spin_max.pack(side=tk.LEFT, padx=(0, 2))
-        ttk.Label(row2, text="초 사이").pack(side=tk.LEFT, padx=(0, 16))
+        ttk.Label(row2, text="초 (가우시안)").pack(side=tk.LEFT, padx=(0, 16))
 
         # 간격 실시간 수정 감지 바인딩
         self.interval_min_var.trace_add("write", lambda *args: self._on_interval_modified())
@@ -199,7 +199,7 @@ class BrunchLikeApp:
         # 일일 누적 카운터 표시
         self.daily_stats_lbl = ttk.Label(
             row2,
-            text="💖 오늘 누적 좋아요: 0 / 1,498회 (잔여: 1,498회)",
+            text="💖 오늘 누적 좋아요: 0 / 150회 (안전 한도)",
             font=("Malgun Gothic", 9, "bold"),
             foreground="#047857"
         )
@@ -383,10 +383,11 @@ class BrunchLikeApp:
     def _update_daily_stats_display(self):
         """오늘 누적 좋아요 수치 레이블을 갱신합니다."""
         cnt = get_today_liked_count()
-        remaining = max(0, DAILY_LIKE_LIMIT - cnt)
-        color = "#dc2626" if remaining == 0 else ("#d97706" if remaining <= 100 else "#047857")
+        today_limit = get_today_daily_limit()
+        remaining = max(0, today_limit - cnt)
+        color = "#dc2626" if remaining == 0 else ("#d97706" if remaining <= 20 else "#047857")
         self.daily_stats_lbl.config(
-            text=f"💖 오늘 누적 좋아요: {cnt:,} / {DAILY_LIKE_LIMIT:,}회 (잔여: {remaining:,}회)",
+            text=f"💖 오늘 누적 좋아요: {cnt:,} / {today_limit:,}회 (잔여: {remaining:,}회)",
             foreground=color
         )
 
@@ -596,12 +597,13 @@ class BrunchLikeApp:
         self.root.after(0, cb)
 
     def _start_like(self):
-        # 1. 일일 최대 한도(1,498회) 사전 점검
-        can_proceed, today_cnt, remaining = can_like_today(DAILY_LIKE_LIMIT)
+        # 1. 일일 최대 안전 한도(100~200회) 사전 점검
+        today_limit = get_today_daily_limit()
+        can_proceed, today_cnt, remaining = can_like_today(today_limit)
         if not can_proceed:
             messagebox.showwarning(
-                "일일 한도 달성",
-                f"오늘 이미 일일 최대 좋아요 한도({DAILY_LIKE_LIMIT:,}회 중 {today_cnt:,}회)를 모두 달성하였습니다!\n"
+                "일일 안전 한도 달성",
+                f"오늘 이미 이상탐지 방지 일일 안전 한도({today_limit:,}회 중 {today_cnt:,}회)를 모두 달성하였습니다!\n"
                 "카카오/브런치 계정 보호를 위해 내일 다시 실행해주세요."
             )
             return
@@ -639,7 +641,7 @@ class BrunchLikeApp:
             interval_max=max_sec,
             bot=bot_instance,
             cookies=self.cookie_str if self.cookie_str else None,
-            daily_limit=DAILY_LIKE_LIMIT,
+            daily_limit=today_limit,
             log_callback=self._log,
             article_update_callback=self._update_article_progress,
             article_completed_callback=self._on_article_completed,
