@@ -62,9 +62,11 @@ def load_daily_stats() -> Dict:
                         saved_limit = saved.get("daily_limit")
 
                         if saved_date == today:
-                            # 오늘 한도가 이미 있으면 유지, 없거나 범위를 벗어나면 새로 생성
+                            # 오늘 한도가 이미 있으면 유지, 없거나 범위를 벗어나면 새로 생성 후 저장
+                            need_save = False
                             if not saved_limit or not (DAILY_LIMIT_MIN <= saved_limit <= DAILY_LIMIT_MAX):
                                 saved_limit = _generate_random_limit()
+                                need_save = True
 
                             data = {
                                 "date": today,
@@ -72,6 +74,9 @@ def load_daily_stats() -> Dict:
                                 "daily_limit": saved_limit,
                                 "history": history
                             }
+                            if need_save:
+                                with open(_STATS_FILE, "w", encoding="utf-8") as wf:
+                                    json.dump(data, wf, ensure_ascii=False, indent=2)
                         else:
                             # 날짜가 변경된 경우 이전 날짜 기록 보존 후 오늘 카운트 0으로 리셋 및 새 랜덤 한도 배정
                             if saved_date and saved_count:
