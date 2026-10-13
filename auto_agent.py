@@ -137,31 +137,6 @@ def get_yesterday_day_code(base_date: Optional[datetime] = None) -> Tuple[str, s
     return days_en[w], days_ko[w]
 
 
-def get_daily_sessions(today_date, daily_limit: int) -> List[Dict]:
-    """
-    하루 3회 시간대 배치 스케줄을 생성합니다.
-    - 각 세션당 280 ~ 300개 무작위 수량 제한 (3회 총 840~900개)
-    - 아침 세션: 06:40 ~ 08:30 (280 ~ 300회)
-    - 점심 세션: 12:10 ~ 13:30 (280 ~ 300회)
-    - 저녁 세션: 18:40 ~ 20:30 (280 ~ 300회)
-    세션 사이에는 브라우저 및 네트워크 연결을 완전히 종료하여 이상탐지를 회피합니다.
-    """
-    q_morning = random.randint(280, 300)
-    q_lunch = random.randint(280, 300)
-    q_evening = random.randint(280, 300)
-
-    # 시작 시각에 인간적인 지터(무작위 분/초) 적용
-    t_morning = datetime(today_date.year, today_date.month, today_date.day, 7, 0, 0) + timedelta(minutes=random.randint(-20, 50), seconds=random.randint(0, 59))
-    t_lunch = datetime(today_date.year, today_date.month, today_date.day, 12, 30, 0) + timedelta(minutes=random.randint(-20, 40), seconds=random.randint(0, 59))
-    t_evening = datetime(today_date.year, today_date.month, today_date.day, 19, 15, 0) + timedelta(minutes=random.randint(-25, 55), seconds=random.randint(0, 59))
-
-    return [
-        {"id": "morning", "name": "🌅 아침 세션", "time": t_morning, "quota": q_morning},
-        {"id": "lunch", "name": "☀️ 점심 세션", "time": t_lunch, "quota": q_lunch},
-        {"id": "evening", "name": "🌙 저녁 세션", "time": t_evening, "quota": q_evening},
-    ]
-
-
 class BrunchAutoAgent:
     def __init__(self, target_days: Optional[List[str]] = None):
         # target_days가 명시되지 않은 경우 어제 요일을 동적으로 계산하여 타겟팅
@@ -182,12 +157,11 @@ class BrunchAutoAgent:
             return True, f"'{user}' 작가님 계정 인증 성공"
         return False, f"인증 실패: {user}"
 
-    def run_today_session(self, batch_limit: Optional[int] = None, session_name: str = "단일 배치") -> bool:
+    def run_today_session(self, batch_limit: Optional[int] = None, session_name: str = "수동 실행") -> bool:
         """
-        오늘의 자동 좋아요 배치를 1회 실행합니다.
+        좋아요 세션을 1회 실행합니다. (시간대별 자동 예약 실행 제거됨)
         - 어제의 요일 발행 글을 대상으로 수집 및 좋아요 진행
-        - 세션당 280~300개 수량 제한
-        - 배치 완료 시 브라우저 및 HTTP 세션 완전 종료
+        - 일일 한도(1,400회) 내에서 동작
         """
         if self.is_running_task:
             logger.warning("이미 작업이 실행 중입니다.")
@@ -201,11 +175,11 @@ class BrunchAutoAgent:
         # 잔여 허용량 계산
         remaining_today = max(0, daily_limit - cur_liked)
         if remaining_today <= 0:
-            logger.info(f"✅ 오늘 이미 목표 한도({cur_liked}/{daily_limit}회)를 모두 달성하였습니다. 금일 작업을 마칩니다.")
+            logger.info(f"✅ 오늘 이미 목표 한도({cur_liked}/{daily_limit}회)를 모두 달성하였습니다. 작업을 마칩니다.")
             self.is_running_task = False
             return True
 
-        # 이번 배치의 목표치 결정 (배치 지정량과 당일 잔여량 중 작은 값)
+        # 이번 실행의 목표치 결정
         target_batch = min(batch_limit or remaining_today, remaining_today)
 
         # 대상 요일 결정 (기본: 어제 요일)
@@ -221,7 +195,7 @@ class BrunchAutoAgent:
         logger.info(f"🚀 [Brunch Auto Agent] {today_str} [{session_name}] 가동")
         logger.info(
             f"🎯 일일 최대 한도: {daily_limit}회 | 현재 누적: {cur_liked}회 | "
-            f"이번 세션 목표: {target_batch}회 (대상: {day_desc})"
+            f"이번 실행 목표: {target_batch}회 (대상: {day_desc})"
         )
         logger.info("=" * 65)
 
@@ -263,7 +237,7 @@ class BrunchAutoAgent:
             self.is_running_task = False
             return True
 
-        # 4. 스케줄러 실행 (가우시안 대기, 이번 배치 한도 도달 시 자동 종료)
+        # 4. 스케줄러 실행
         success_cnt = 0
         skipped_cnt = 0
         failed_cnt = 0
@@ -306,121 +280,17 @@ class BrunchAutoAgent:
         final_today = get_today_liked_count()
         logger.info("=" * 65)
         logger.info(
-            f"🏁 [{session_name} 완료] 이번 배치 성공: {success_cnt:,}건 | 스킵: {skipped_cnt:,}건 | "
+            f"🏁 [{session_name} 완료] 성공: {success_cnt:,}건 | 스킵: {skipped_cnt:,}건 | "
             f"실패: {failed_cnt:,}건 | 오늘 총 누적: {final_today:,}/{daily_limit:,}회"
         )
-        logger.info("🔒 세션/브라우저를 완전히 종료하고 다음 배치까지 휴식 상태를 유지합니다.")
         logger.info("=" * 65)
         return True
-
-    def start_autonomous_loop(self):
-        """
-        24시간 상시 감시 및 3회 시간대 배치 분할 자율 실행 무한 루프
-        - 아침(07:00경), 점심(12:30경), 저녁(19:15경) 각 세션당 280~300개 무작위 수량 제한
-        - 각 배치 실행 후 브라우저 및 세션 완전 종료 (이상탐지 회피)
-        - 대상: 어제 요일 발행 글
-        """
-        logger.info("=" * 65)
-        logger.info("🤖 [Brunch Auto Agent] 3회 배치 분할 자율 실행 모드를 가동합니다.")
-        logger.info("🛡️ 운영 설계:")
-        logger.info("   1) 대상: 어제 요일 발행 글")
-        logger.info("   2) 3회 배치 분할: 아침/점심/저녁 각 세션당 280~300개 무작위 제한")
-        logger.info("   3) 세션 사이 브라우저 및 세션 완전 종료 (스텔스 휴식)")
-        logger.info("   4) 가우시안 정규분포 딜레이 및 인간 체류 시간 모사")
-        logger.info("=" * 65)
-
-        # 시작 시 로그인 사전 점검
-        is_ok, msg = self.check_auth()
-        if is_ok:
-            logger.info(f"✅ {msg}")
-        else:
-            logger.warning(f"⚠️ {msg}")
-
-        last_executed_session_id = None
-        last_executed_date = None
-
-        while True:
-            now = datetime.now()
-            today_date = now.date()
-            daily_limit = get_today_daily_limit()
-            cur_liked = get_today_liked_count()
-
-            # 날짜가 바뀌었으면 세션 추적 리셋
-            if last_executed_date != today_date:
-                last_executed_date = today_date
-                last_executed_session_id = None
-
-            # 당일 일일 한도 이미 달성 시 내일까지 대기
-            if cur_liked >= daily_limit:
-                tomorrow_morning = datetime(now.year, now.month, now.day, 7, 0, 0) + timedelta(days=1, minutes=random.randint(-15, 45))
-                wait_sec = (tomorrow_morning - now).total_seconds()
-                hours = int(wait_sec // 3600)
-                mins = int((wait_sec % 3600) // 60)
-                logger.info(
-                    f"🎉 오늘 목표 한도({cur_liked}/{daily_limit}회)를 완수했습니다. "
-                    f"내일 아침({tomorrow_morning.strftime('%m-%d %H:%M')}, 약 {hours}시간 {mins}분 후)까지 완전 휴식합니다."
-                )
-                while datetime.now() < tomorrow_morning:
-                    time.sleep(60)
-                continue
-
-            # 오늘자 3개 세션 일정 생성
-            sessions = get_daily_sessions(today_date, daily_limit)
-
-            # 아직 실행되지 않은 다음 세션 찾기
-            next_session = None
-            for s in sessions:
-                # 시작 시각 20분 전까지는 해당 세션의 시간창으로 간주
-                if now <= s["time"] + timedelta(hours=2):
-                    next_session = s
-                    break
-
-            if not next_session:
-                # 오늘 모든 세션 시간(저녁 이후)이 지남 -> 내일 아침으로 대기
-                tomorrow_morning = datetime(now.year, now.month, now.day, 7, 0, 0) + timedelta(days=1, minutes=random.randint(-15, 45))
-                wait_sec = (tomorrow_morning - now).total_seconds()
-                hours = int(wait_sec // 3600)
-                mins = int((wait_sec % 3600) // 60)
-                logger.info(
-                    f"🌙 금일 모든 세션 시간대가 종료되었습니다. (오늘 누적: {cur_liked}/{daily_limit}회) "
-                    f"내일 아침({tomorrow_morning.strftime('%m-%d %H:%M')}, 약 {hours}시간 {mins}분 후)까지 대기합니다."
-                )
-                while datetime.now() < tomorrow_morning:
-                    time.sleep(60)
-                continue
-
-            # 다음 세션 시각까지 대기 필요 여부 확인
-            if now < next_session["time"]:
-                wait_seconds = (next_session["time"] - now).total_seconds()
-                hours = int(wait_seconds // 3600)
-                mins = int((wait_seconds % 3600) // 60)
-                logger.info(
-                    f"💤 [휴식 모드] 다음 배치: {next_session['name']} "
-                    f"(예정: {next_session['time'].strftime('%H:%M:%S')}, 목표: {next_session['quota']}건, "
-                    f"약 {hours}시간 {mins}분 대기 중... 브라우저 종료 상태)"
-                )
-                while datetime.now() < next_session["time"]:
-                    time.sleep(30)
-
-            # 세션 시각 도달 ➡️ 배치 실행
-            logger.info(f"⏰ {next_session['name']} 실행 시각({datetime.now().strftime('%H:%M:%S')})에 도달했습니다!")
-            self.run_today_session(batch_limit=next_session["quota"], session_name=next_session["name"])
-            last_executed_session_id = next_session["id"]
-
-            # 배치 완료 후 최소 10분 이상 안전 쿨다운
-            time.sleep(600)
 
 
 def main():
     agent = BrunchAutoAgent()
-
-    # 명령행 인자 지원: --once 전달 시 1개 배치(280~300건)만 즉시 실행하고 종료
-    if len(sys.argv) > 1 and sys.argv[1] == "--once":
-        batch_quota = random.randint(280, 300)
-        logger.info(f"[수동 1회 실행 모드] 안전 1회 배치({batch_quota}건 목표)를 실행합니다.")
-        agent.run_today_session(batch_limit=batch_quota, session_name="수동 단일 배치")
-    else:
-        agent.start_autonomous_loop()
+    logger.info("[수동 실행 모드] 시간대별 자동 예약 없이 즉시 1회 실행합니다.")
+    agent.run_today_session(session_name="수동 실행")
 
 
 if __name__ == "__main__":
