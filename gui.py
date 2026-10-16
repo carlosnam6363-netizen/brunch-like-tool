@@ -611,7 +611,7 @@ class BrunchLikeApp:
         # 2. 대기 중인 글 중 아직 완료되지 않은 글만 추출
         targets = [
             a for a in self.pending_articles
-            if self._get_article_key(a) not in self.completed_keys and a.get("status") not in ("좋아요 완료", "이미 좋아요됨")
+            if self._get_article_key(a) not in self.completed_keys and a.get("status") not in ("좋아요 완료", "좋아요 스킵", "이미 좋아요됨")
         ]
 
         if not targets:
@@ -667,9 +667,13 @@ class BrunchLikeApp:
                     self.status_lbl.config(
                         text=f"진행 중: [{idx + 1}/{max_val}] '{title}'"
                     )
-                elif status == "이미 좋아요됨":
+                elif status in ("좋아요 스킵", "이미 좋아요됨"):
                     self.status_lbl.config(
-                        text=f"스킵: [{idx + 1}/{max_val}] '{title}' (이전 좋아요 완료 건 ⏩)"
+                        text=f"스킵: [{idx + 1}/{max_val}] '{title}' (좋아요 스킵 ⏩)"
+                    )
+                elif status == "로그인 필요":
+                    self.status_lbl.config(
+                        text=f"🛑 로그인 필요: [{idx + 1}/{max_val}] '{title}'"
                     )
             except Exception:
                 pass
@@ -690,10 +694,30 @@ class BrunchLikeApp:
             self.btn_stop.config(state="disabled")
             self.btn_fetch.config(state="normal")
             self.countdown_lbl.config(text="")
-            self.status_lbl.config(text=f"작업 완료 - 성공: {success}건, 스킵: {skipped}건, 실패: {failed}건")
             self._update_daily_stats_display()
-            self.notebook.select(1)  # 완료 후 완료 탭으로 이동
-            messagebox.showinfo("완료", f"좋아요 작업이 완료되었습니다!\n- 성공: {success}건\n- 스킵(기완료): {skipped}건\n- 실패: {failed}건\n\n완료된 글은 [좋아요 완료 목록] 탭으로 이동되었습니다.")
+
+            # 로그인 팝업 등으로 중단된 경우
+            stop_reason = getattr(self.scheduler, "stop_reason", None) if self.scheduler else None
+            if stop_reason == "NOT_LOGGED_IN":
+                self.status_lbl.config(
+                    text=f"🛑 [중단됨] 로그인 팝업 창 감지로 중단 (좋아요 완료: {success}건, 좋아요 스킵: {skipped}건)"
+                )
+                messagebox.showwarning(
+                    "로그인 팝업 감지 - 작업 중단",
+                    "로그인 팝업 창이 감지되어 작업을 즉시 중단했습니다.\n\n"
+                    "카카오 로그인을 먼저 완료하거나 쿠키를 등록한 후 다시 실행해주세요."
+                )
+            else:
+                self.status_lbl.config(text=f"작업 완료 - 좋아요 완료: {success}건, 좋아요 스킵: {skipped}건, 실패: {failed}건")
+                self.notebook.select(1)  # 완료 후 완료 탭으로 이동
+                messagebox.showinfo(
+                    "완료",
+                    f"좋아요 작업이 완료되었습니다!\n"
+                    f"- 좋아요 완료: {success}건\n"
+                    f"- 좋아요 스킵: {skipped}건\n"
+                    f"- 실패: {failed}건\n\n"
+                    "완료된 글은 [좋아요 완료 목록] 탭으로 이동되었습니다."
+                )
         self.root.after(0, cb)
 
     def _toggle_pause(self):

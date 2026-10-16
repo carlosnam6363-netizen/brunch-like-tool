@@ -402,7 +402,7 @@ def like_article_api(
             try:
                 like_info = json.loads(like_match.group(1))
                 if like_info.get("isLiked") is True:
-                    return "ALREADY_LIKED", "이미 좋아요가 눌러진 글입니다 (스킵)."
+                    return "ALREADY_LIKED", "이미 좋아요가 눌러진 글입니다 (좋아요 스킵)."
             except Exception:
                 pass
 

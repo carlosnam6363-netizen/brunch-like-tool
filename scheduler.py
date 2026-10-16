@@ -108,6 +108,7 @@ class LikeScheduler:
         self.skipped_count = 0
         self.failed_count = 0
         self.is_running = False
+        self.stop_reason: Optional[str] = None
 
     def log(self, message: str, level: str = "INFO"):
         if self.log_callback:
@@ -248,7 +249,7 @@ class LikeScheduler:
                 break
 
             # 이미 완료된 글은 중복 처리 방지 스킵
-            if article.get("status") in ("좋아요 완료", "이미 좋아요됨"):
+            if article.get("status") in ("좋아요 완료", "좋아요 스킵", "이미 좋아요됨"):
                 self.skipped_count += 1
                 self.log(f"[{idx + 1}/{total}] '{article.get('article_title')}' 이전 작업 완료 건으로 스킵합니다.", "INFO")
                 continue
@@ -302,16 +303,18 @@ class LikeScheduler:
                     break
             elif result_code == "ALREADY_LIKED":
                 self.skipped_count += 1
-                status_str = "이미 좋아요됨"
+                status_str = "좋아요 스킵"
                 article["status"] = status_str
-                self.log(f"[{idx + 1}/{total}] [스킵] '{title}' 이전에 이미 좋아요를 누른 글입니다. 별도 대기 없이 다음 글로 즉시 넘어갑니다.", "INFO")
+                self.log(f"[{idx + 1}/{total}] [좋아요 스킵] '{title}' 이전에 이미 좋아요를 누른 글입니다. 별도 대기 없이 다음 글로 즉시 넘어갑니다.", "INFO")
                 if self.article_completed_callback:
                     self.article_completed_callback(article, status_str)
             elif result_code == "NOT_LOGGED_IN":
                 self.failed_count += 1
                 status_str = "로그인 필요"
                 article["status"] = status_str
-                self.log(f"[{idx + 1}/{total}] [실패] 로그인이 유효하지 않습니다: {message}", "ERROR")
+                self.stop_reason = "NOT_LOGGED_IN"
+                self._stop_event.set()
+                self.log(f"🛑 [작업 중단] 로그인 팝업 창이 감지되어 작업을 즉시 중단합니다: {message}", "ERROR")
                 if self.article_update_callback:
                     self.article_update_callback(idx, status_str, article)
                 break
@@ -370,8 +373,8 @@ class LikeScheduler:
             self._session = None
 
         summary_msg = (
-            f"작업 완료! [성공: {self.success_count}건, "
-            f"스킵: {self.skipped_count}건, 실패: {self.failed_count}건]"
+            f"작업 완료! [좋아요 완료: {self.success_count}건, "
+            f"좋아요 스킵: {self.skipped_count}건, 실패: {self.failed_count}건]"
         )
         self.log(summary_msg, "SUCCESS")
 

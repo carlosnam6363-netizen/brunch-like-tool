@@ -246,21 +246,112 @@ class BrunchBot:
         except Exception:
             pass
 
+    def check_login_popup_present(self, main_window_handle: Optional[str] = None) -> Tuple[bool, str]:
+        """
+        로그인 팝업 창, 모달 레이어, 리디렉션, 알림창이 발생했는지 감지합니다.
+        :return: (발생여부, 사유메시지)
+        """
+        if not self.driver:
+            return False, ""
+
+        try:
+            # 1. 브라우저 Alert 경고창 감지
+            try:
+                alert = self.driver.switch_to.alert
+                text = alert.text
+                alert.dismiss()
+                return True, f"로그인 알림 창 발생: '{text}'"
+            except Exception:
+                pass
+
+            # 2. 새 팝업 창 발생 여부 감지 (카카오 로그인 팝업 등)
+            handles = self.driver.window_handles
+            if len(handles) > 1:
+                detail = "새 팝업 창 열림"
+                if main_window_handle:
+                    for h in handles:
+                        if h != main_window_handle:
+                            try:
+                                self.driver.switch_to.window(h)
+                                u = (self.driver.current_url or "").lower()
+                                t = (self.driver.title or "").lower()
+                                detail = f"로그인 팝업 창 열림 (제목: {t}, URL: {u})"
+                            except Exception:
+                                pass
+                            finally:
+                                try:
+                                    self.driver.switch_to.window(main_window_handle)
+                                except Exception:
+                                    pass
+                return True, detail
+
+            # 3. 로그인 페이지 URL 리다이렉션 감지
+            curr_url = (self.driver.current_url or "").lower()
+            if any(k in curr_url for k in ["accounts.kakao.com", "/signin", "/login"]):
+                return True, f"로그인 페이지로 이동됨 ({curr_url})"
+
+            # 4. 페이지 내 로그인 모달 레이어 및 iframe 감지
+            login_selectors = [
+                ".wrap_login_modal", ".layer_login", "#loginModal",
+                "div[class*='layer_login']", "div[class*='login_layer']",
+                "div[class*='popup_login']", "div[class*='wrap_login']",
+                "div[class*='modal_login']", "div[id*='login']",
+                "iframe[src*='kakao.com']", "iframe[src*='login']", "iframe[src*='signin']",
+                ".dimmed_layer", "div[class*='dimmed']", "div.layer_action"
+            ]
+            for sel in login_selectors:
+                try:
+                    elems = self.driver.find_elements(By.CSS_SELECTOR, sel)
+                    for el in elems:
+                        if el.is_displayed():
+                            txt = el.text.strip().lower()
+                            if not txt or any(k in txt for k in ["로그인", "카카오", "login", "kakao"]):
+                                return True, "화면에 로그인 팝업 레이어가 감지됨"
+                except Exception:
+                    continue
+
+            # 5. 로그인 안내 텍스트 노출 여부
+            try:
+                login_texts = self.driver.find_elements(
+                    By.XPATH,
+                    "//*[contains(text(), '카카오계정으로 로그인') or contains(text(), '카카오로 시작하기') or contains(text(), '로그인 후 이용') or contains(text(), '로그인이 필요')]"
+                )
+                for lt in login_texts:
+                    if lt.is_displayed():
+                        return True, f"로그인 안내 텍스트 감지 ('{lt.text.strip()}')"
+            except Exception:
+                pass
+
+        except Exception:
+            pass
+
+        return False, ""
+
     def like_article(self, url: str) -> Tuple[str, str]:
         """
         특정 글 페이지에 접속하여 본문 읽기/스크롤 행동 모사 후 '우측 상단 하트(라이킷)' 버튼을 누릅니다.
         
         :return: (결과 코드, 메시지)
                  - 'LIKED': 좋아요 성공
-                 - 'ALREADY_LIKED': 이미 좋아요가 눌러진 글
-                 - 'NOT_LOGGED_IN': 로그인이 필요함
+                 - 'ALREADY_LIKED': 이미 좋아요가 눌러진 글 (좋아요 스킵)
+                 - 'NOT_LOGGED_IN': 로그인이 필요함 (로그인 팝업 감지 시)
                  - 'ERROR': 오류 발생
         """
         if not self.driver:
             self.init_driver(headless=False)
 
         try:
+            main_window = self.driver.current_window_handle
+        except Exception:
+            main_window = None
+
+        try:
             self.driver.get(url)
+
+            # 접속 직후 로그인 팝업/리디렉트 사전 점검
+            has_login, reason = self.check_login_popup_present(main_window)
+            if has_login:
+                return "NOT_LOGGED_IN", f"로그인 팝업이 감지되었습니다 ({reason}). 동작을 즉시 중단합니다."
 
             # 1. LIKE_DATA 전역 스크립트 상태 즉시 확인 (이미 좋아요된 글은 불필요한 대기 없이 즉시 반환)
             try:
@@ -272,7 +363,7 @@ class BrunchBot:
                     return null;
                 """)
                 if is_liked is True:
-                    return "ALREADY_LIKED", "이미 좋아요가 눌러진 글입니다 (LIKE_DATA 즉시 확인)."
+                    return "ALREADY_LIKED", "이미 좋아요가 눌러진 글입니다 (좋아요 스킵)."
             except Exception:
                 pass
 
@@ -318,7 +409,7 @@ class BrunchBot:
                 return "ERROR", "우측 상단 하트(라이킷) 버튼을 찾을 수 없습니다."
 
             if is_already_liked:
-                return "ALREADY_LIKED", "이미 좋아요가 눌러진 글입니다 (스킵)."
+                return "ALREADY_LIKED", "이미 좋아요가 눌러진 글입니다 (좋아요 스킵)."
 
             # 5. 인간다운 마우스 호버(Hover) 후 클릭 수행
             try:
@@ -333,10 +424,10 @@ class BrunchBot:
 
             time.sleep(1.0)
 
-            # 로그인 필요 모달 발생 여부 확인
-            login_modal = self.driver.find_elements(By.CSS_SELECTOR, ".wrap_login_modal, .layer_login, #loginModal")
-            if login_modal and any(m.is_displayed() for m in login_modal):
-                return "NOT_LOGGED_IN", "로그인이 필요합니다. 먼저 카카오 로그인을 진행해주세요."
+            # 클릭 직후 로그인 팝업 창 / 레이어 발생 여부 정밀 확인
+            has_login, reason = self.check_login_popup_present(main_window)
+            if has_login:
+                return "NOT_LOGGED_IN", f"로그인 팝업 창이 감지되었습니다 ({reason}). 동작을 즉시 중단합니다."
 
             return "LIKED", "우측 상단 하트 좋아요 완료"
 

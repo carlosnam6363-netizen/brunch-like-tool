@@ -228,7 +228,7 @@ class BrunchAutoAgent:
         pending = []
         for art in articles:
             key = f"{art.get('user_id')}_{art.get('article_no')}"
-            if key not in self.completed_keys and art.get("status") not in ("좋아요 완료", "이미 좋아요됨"):
+            if key not in self.completed_keys and art.get("status") not in ("좋아요 완료", "좋아요 스킵", "이미 좋아요됨"):
                 pending.append(art)
 
         logger.info(f"필터링 결과: 대기 {len(pending):,}건 / 기완료 {len(self.completed_keys):,}건")

@@ -240,8 +240,8 @@ with col_btn2:
     start_auto_like = st.button("🚀 2. 랜덤 간격 자동 좋아요 시작", type="primary")
 
 # 글 목록 탭 분리 표시 (대기 중 vs 좋아요 완료)
-pending_list = [a for a in st.session_state.articles if a["url"] not in st.session_state.completed_keys and a.get("status") not in ("좋아요 완료", "이미 좋아요됨")]
-done_list = [a for a in st.session_state.articles if a["url"] in st.session_state.completed_keys or a.get("status") in ("좋아요 완료", "이미 좋아요됨")]
+pending_list = [a for a in st.session_state.articles if a["url"] not in st.session_state.completed_keys and a.get("status") not in ("좋아요 완료", "좋아요 스킵", "이미 좋아요됨")]
+done_list = [a for a in st.session_state.articles if a["url"] in st.session_state.completed_keys or a.get("status") in ("좋아요 완료", "좋아요 스킵", "이미 좋아요됨")]
 
 if st.session_state.articles:
     st.markdown(f"#### 📑 연재 글 목록 (대기 {len(pending_list):,}건 / 완료 {len(done_list):,}건)")
@@ -277,7 +277,7 @@ if st.session_state.articles:
                     "작가": a["user_name"],
                     "매거진": a["magazine_title"],
                     "발행일시": a["publish_date_str"],
-                    "처리 상태": a.get("status", "완료"),
+                    "처리 결과": a.get("status", "좋아요 완료"),
                     "URL": a["url"]
                 }
                 for idx, a in enumerate(done_list)
@@ -300,7 +300,7 @@ if start_auto_like:
         st.warning("먼저 [1. 연재 글 목록 불러오기]를 눌러 글 목록을 조회해주세요.")
     else:
         # 중복 방지: 대기 중인 글만 대상으로 필터링
-        articles = [a for a in st.session_state.articles if a["url"] not in st.session_state.completed_keys and a.get("status") not in ("좋아요 완료", "이미 좋아요됨")]
+        articles = [a for a in st.session_state.articles if a["url"] not in st.session_state.completed_keys and a.get("status") not in ("좋아요 완료", "좋아요 스킵", "이미 좋아요됨")]
         if not articles:
             st.info("대기 중인 글이 없거나 모든 글의 좋아요가 이미 완료되었습니다!")
             st.stop()
@@ -317,7 +317,7 @@ if start_auto_like:
         col_m1, col_m2, col_m3, col_m4, col_m5 = st.columns(5)
         col_m1.metric("총 대상 글", f"{total}건")
         m_success = col_m2.metric("성공 💖", "0건")
-        m_skip = col_m3.metric("스킵(이미 누름) ℹ️", "0건")
+        m_skip = col_m3.metric("좋아요 스킵 ℹ️", "0건")
         m_fail = col_m4.metric("실패 ❌", "0건")
         m_daily = col_m5.metric("오늘 누적 좋아요", f"{today_cnt} / {today_limit}회")
 
@@ -369,7 +369,7 @@ if start_auto_like:
                     st.session_state.completed_keys.add(url)
                     new_today = record_daily_like()
                     m_daily.metric("오늘 누적 좋아요", f"{new_today} / {today_limit}회")
-                    logs.append(f"[{now_str}] 💖 [성공] '{title}' ({author}) 우측 상단 하트 클릭 완료 (오늘 누적: {new_today}/{today_limit}회)")
+                    logs.append(f"[{now_str}] 💖 [좋아요 완료] '{title}' ({author}) 우측 상단 하트 클릭 완료 (오늘 누적: {new_today}/{today_limit}회)")
 
                     if new_today >= today_limit:
                         logs.append(f"[{now_str}] 🛑 오늘 최대 안전 한도({today_limit}회)를 모두 달성하였습니다!")
@@ -379,14 +379,14 @@ if start_auto_like:
                         break
                 elif res_code == "ALREADY_LIKED":
                     skipped += 1
-                    article["status"] = "이미 좋아요됨"
+                    article["status"] = "좋아요 스킵"
                     st.session_state.completed_keys.add(url)
-                    logs.append(f"[{now_str}] ℹ️ [스킵] '{title}' ({author}) 이전에 이미 좋아요를 누른 글입니다. (즉시 다음 글로 이동)")
+                    logs.append(f"[{now_str}] ℹ️ [좋아요 스킵] '{title}' ({author}) 이전에 이미 좋아요를 누른 글입니다. (즉시 다음 글로 이동)")
                 elif res_code == "NOT_LOGGED_IN":
                     failed += 1
                     article["status"] = "로그인 필요"
-                    logs.append(f"[{now_str}] ❌ [오류] 로그인 세션이 유효하지 않습니다: {msg}")
-                    st.error("로그인이 필요합니다. [1단계]에서 카카오 로그인 또는 쿠키 입력을 진행해주세요.")
+                    logs.append(f"[{now_str}] 🛑 [작업 중단] 로그인 팝업 창이 감지되어 작업을 즉시 중단합니다: {msg}")
+                    st.error("🛑 로그인 팝업 창이 감지되어 작업을 즉시 중단했습니다. 카카오 로그인을 완료하거나 유효한 쿠키를 등록한 후 다시 실행해주세요.")
                     break
                 else:
                     failed += 1
@@ -395,7 +395,7 @@ if start_auto_like:
 
                 # 메트릭 및 진행바 업데이트
                 m_success.metric("성공 💖", f"{success}건")
-                m_skip.metric("스킵(이미 누름) ℹ️", f"{skipped}건")
+                m_skip.metric("좋아요 스킵 ℹ️", f"{skipped}건")
                 m_fail.metric("실패 ❌", f"{failed}건")
                 progress_bar.progress((i + 1) / total)
                 log_box.code("\n".join(reversed(logs[-10:])), language="text")
@@ -414,7 +414,7 @@ if start_auto_like:
 
             current_status.empty()
             st.balloons()
-            st.success(f"🎉 모든 작업이 완료되었습니다! (성공: {success}건, 스킵: {skipped}건, 오류: {failed}건)")
+            st.success(f"🎉 모든 작업이 완료되었습니다! (좋아요 완료: {success}건, 좋아요 스킵: {skipped}건, 오류: {failed}건)")
         finally:
             if http_session:
                 http_session.close()
