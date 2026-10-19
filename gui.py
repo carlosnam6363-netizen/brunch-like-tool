@@ -38,6 +38,7 @@ class BrunchLikeApp:
         self.pending_articles = []    # 대기 중인 글 목록
         self.completed_articles = []  # 좋아요 완료/스킵된 글 목록
         self.completed_keys = set()   # 완료된 글 고유 키 세트 (중복 방지)
+        self.checked_pending_keys = set()  # 사용자가 체크박스로 선택한 글 키 세트
 
         self.bot = None
         self.scheduler = None
@@ -261,8 +262,40 @@ class BrunchLikeApp:
         self.tab_pending = ttk.Frame(self.notebook)
         self.notebook.add(self.tab_pending, text="📑 대기 중인 글 목록 (0건)")
 
-        cols_pending = ("idx", "day", "title", "author", "magazine", "date", "likes", "status")
-        self.tree_pending = ttk.Treeview(self.tab_pending, columns=cols_pending, show="headings", selectmode="browse")
+        # 대기 탭 상단 액션 툴바 (체크박스 조작 및 완료 탭 수동 이동)
+        pending_toolbar = ttk.Frame(self.tab_pending, padding=(0, 2, 0, 6))
+        pending_toolbar.pack(fill=tk.X, side=tk.TOP)
+
+        self.btn_select_all = ttk.Button(
+            pending_toolbar, text="☑ 전체 선택", command=self._select_all_pending, width=10
+        )
+        self.btn_select_all.pack(side=tk.LEFT, padx=(0, 4))
+
+        self.btn_deselect_all = ttk.Button(
+            pending_toolbar, text="☐ 전체 해제", command=self._deselect_all_pending, width=10
+        )
+        self.btn_deselect_all.pack(side=tk.LEFT, padx=(0, 8))
+
+        self.btn_move_to_done = ttk.Button(
+            pending_toolbar,
+            text="💖 선택한 글 완료 탭으로 이동 (라이킷 완료 처리)",
+            command=self._move_selected_to_done,
+            style="Primary.TButton"
+        )
+        self.btn_move_to_done.pack(side=tk.LEFT, padx=(0, 10))
+
+        self.lbl_selected_count = ttk.Label(
+            pending_toolbar, text="선택됨: 0건", font=("Malgun Gothic", 9, "bold"), foreground="#2563eb"
+        )
+        self.lbl_selected_count.pack(side=tk.LEFT)
+
+        # 트리뷰 및 스크롤바 프레임
+        tree_frame_p = ttk.Frame(self.tab_pending)
+        tree_frame_p.pack(fill=tk.BOTH, expand=True)
+
+        cols_pending = ("check", "idx", "day", "title", "author", "magazine", "date", "likes", "status")
+        self.tree_pending = ttk.Treeview(tree_frame_p, columns=cols_pending, show="headings", selectmode="extended")
+        self.tree_pending.heading("check", text="선택", command=self._toggle_all_pending)
         self.tree_pending.heading("idx", text="#")
         self.tree_pending.heading("day", text="요일")
         self.tree_pending.heading("title", text="글 제목")
@@ -272,20 +305,24 @@ class BrunchLikeApp:
         self.tree_pending.heading("likes", text="좋아요")
         self.tree_pending.heading("status", text="처리 상태")
 
+        self.tree_pending.column("check", width=48, anchor="center")
         self.tree_pending.column("idx", width=36, anchor="center")
         self.tree_pending.column("day", width=50, anchor="center")
-        self.tree_pending.column("title", width=270)
+        self.tree_pending.column("title", width=260)
         self.tree_pending.column("author", width=95)
-        self.tree_pending.column("magazine", width=160)
+        self.tree_pending.column("magazine", width=150)
         self.tree_pending.column("date", width=115, anchor="center")
         self.tree_pending.column("likes", width=55, anchor="center")
         self.tree_pending.column("status", width=105, anchor="center")
 
-        scroll_p = ttk.Scrollbar(self.tab_pending, orient=tk.VERTICAL, command=self.tree_pending.yview)
+        scroll_p = ttk.Scrollbar(tree_frame_p, orient=tk.VERTICAL, command=self.tree_pending.yview)
         self.tree_pending.configure(yscrollcommand=scroll_p.set)
         self.tree_pending.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
         scroll_p.pack(side=tk.RIGHT, fill=tk.Y)
+
         self.tree_pending.bind("<Double-1>", self._on_pending_double_click)
+        self.tree_pending.bind("<Button-1>", self._on_pending_click)
+        self.tree_pending.bind("<space>", self._on_pending_space)
 
         # [탭 2] 좋아요 완료 목록
         self.tab_done = ttk.Frame(self.notebook)
@@ -491,6 +528,116 @@ class BrunchLikeApp:
             )
         self.notebook.tab(1, text=f"💖 좋아요 완료 목록 ({len(self.completed_articles):,}건)")
 
+    def _on_pending_click(self, event):
+        """대기 목록 항목 클릭 시 첫 번째 컬럼(체크박스)을 누르면 선택/해제 토글"""
+        region = self.tree_pending.identify_region(event.x, event.y)
+        if region == "cell":
+            col = self.tree_pending.identify_column(event.x)
+            row_id = self.tree_pending.identify_row(event.y)
+            if col == "#1" and row_id:
+                self._toggle_pending_item(row_id)
+                return "break"
+
+    def _on_pending_space(self, event):
+        """스페이스바 입력 시 현재 선택된 모든 행의 체크박스 상태 토글"""
+        selected_rows = self.tree_pending.selection()
+        if not selected_rows:
+            return
+        for row_id in selected_rows:
+            self._toggle_pending_item(row_id)
+        return "break"
+
+    def _toggle_pending_item(self, row_id: str):
+        """특정 행의 체크박스 상태(☐/☑)를 토글합니다."""
+        try:
+            idx = int(row_id.replace("pending_", ""))
+            if 0 <= idx < len(self.pending_articles):
+                art = self.pending_articles[idx]
+                key = self._get_article_key(art)
+                if key in self.checked_pending_keys:
+                    self.checked_pending_keys.remove(key)
+                    mark = "☐"
+                else:
+                    self.checked_pending_keys.add(key)
+                    mark = "☑"
+
+                vals = list(self.tree_pending.item(row_id, "values"))
+                if vals:
+                    vals[0] = mark
+                    self.tree_pending.item(row_id, values=vals)
+                self._update_selected_count_label()
+        except Exception:
+            pass
+
+    def _select_all_pending(self):
+        """대기 목록의 모든 글을 체크 선택합니다."""
+        for art in self.pending_articles:
+            self.checked_pending_keys.add(self._get_article_key(art))
+        self._refresh_pending_tree()
+
+    def _deselect_all_pending(self):
+        """대기 목록의 모든 글 체크를 해제합니다."""
+        self.checked_pending_keys.clear()
+        self._refresh_pending_tree()
+
+    def _toggle_all_pending(self):
+        """헤더 클릭 시 전체 선택/해제 토글"""
+        if self.pending_articles and len(self.checked_pending_keys) == len(self.pending_articles):
+            self._deselect_all_pending()
+        else:
+            self._select_all_pending()
+
+    def _update_selected_count_label(self):
+        """선택된 글 개수 레이블 갱신"""
+        cnt = len(self.checked_pending_keys)
+        if hasattr(self, "lbl_selected_count"):
+            self.lbl_selected_count.config(text=f"선택됨: {cnt:,}건")
+
+    def _move_selected_to_done(self):
+        """체크박스로 선택한 글들을 '좋아요 완료 목록' 탭으로 즉시 이동합니다."""
+        if not self.checked_pending_keys:
+            messagebox.showwarning("선택 필요", "완료 탭으로 이동할 글을 왼쪽 체크박스(☐)에서 1개 이상 선택해주세요.")
+            return
+
+        to_move = [a for a in self.pending_articles if self._get_article_key(a) in self.checked_pending_keys]
+        if not to_move:
+            messagebox.showinfo("안내", "선택된 글이 대기 목록에 없습니다.")
+            return
+
+        count = len(to_move)
+        confirm = messagebox.askyesno(
+            "완료 탭으로 이동",
+            f"선택한 {count:,}개의 글을 [좋아요 완료 목록]으로 이동하시겠습니까?\n\n"
+            f"- 처리 결과가 '좋아요 완료'로 기록됩니다.\n"
+            f"- 이동된 글은 이후 자동 좋아요 시 중복 처리되지 않습니다."
+        )
+        if not confirm:
+            return
+
+        now_time = datetime.now().strftime("%H:%M:%S")
+        for art in to_move:
+            key = self._get_article_key(art)
+            if key not in self.completed_keys:
+                self.completed_keys.add(key)
+                art_copy = dict(art)
+                art_copy["status"] = "좋아요 완료"
+                art_copy["done_time"] = now_time
+                self.completed_articles.insert(0, art_copy)
+
+        # pending_articles에서 제거 및 선택 해제
+        self.pending_articles = [a for a in self.pending_articles if self._get_article_key(a) not in self.checked_pending_keys]
+        self.checked_pending_keys.clear()
+
+        # 캐시 저장 및 UI 반영
+        self._save_completed_cache()
+        self._refresh_pending_tree()
+        self._refresh_done_tree()
+        self._update_daily_stats_display()
+
+        self._log(f"수동 완료 처리: {count:,}건의 글을 '좋아요 완료' 상태로 완료 탭에 이동했습니다.", "SUCCESS")
+        self.notebook.select(1)  # 완료 탭으로 이동
+        messagebox.showinfo("이동 완료", f"선택한 {count:,}개의 글이 [좋아요 완료 목록] 탭으로 성공적으로 이동되었습니다!")
+
     def _refresh_pending_tree(self):
         """대기 탭 트리를 갱신합니다."""
         for row in self.tree_pending.get_children():
@@ -500,11 +647,14 @@ class BrunchLikeApp:
         for idx, art in enumerate(self.pending_articles):
             src_day = art.get("source_day", "-")
             day_kor = art.get("source_day_kor") or name_dict.get(src_day, src_day)
+            key = self._get_article_key(art)
+            mark = "☑" if key in self.checked_pending_keys else "☐"
             self.tree_pending.insert(
                 "",
                 tk.END,
                 iid=f"pending_{idx}",
                 values=(
+                    mark,
                     idx + 1,
                     day_kor,
                     art.get("article_title", "무제"),
@@ -516,6 +666,7 @@ class BrunchLikeApp:
                 )
             )
         self.notebook.tab(0, text=f"📑 대기 중인 글 목록 ({len(self.pending_articles):,}건)")
+        self._update_selected_count_label()
 
     def _fetch_articles(self):
         selected_days = self._get_selected_days()
@@ -549,6 +700,7 @@ class BrunchLikeApp:
                     new_pending.append(art)
 
                 self.pending_articles = new_pending
+                self.checked_pending_keys.clear()
 
                 # 요일별 수집 건수 집계
                 day_counts = {}
@@ -590,6 +742,7 @@ class BrunchLikeApp:
 
             # pending_articles에서 제거
             self.pending_articles = [a for a in self.pending_articles if self._get_article_key(a) != key]
+            self.checked_pending_keys.discard(key)
             self._refresh_pending_tree()
             self._refresh_done_tree()
             self._update_daily_stats_display()

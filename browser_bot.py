@@ -248,77 +248,82 @@ class BrunchBot:
 
     def check_login_popup_present(self, main_window_handle: Optional[str] = None) -> Tuple[bool, str]:
         """
-        로그인 팝업 창, 모달 레이어, 리디렉션, 알림창이 발생했는지 감지합니다.
+        로그인 팝업 창, 모달 레이어, 리디렉션, 알림창이 발생했는지 정밀하게 감지합니다.
+        (본문 내 카카오TV 영상, 카카오맵 등 일반 임베드 콘텐츠와의 오탐 방지)
         :return: (발생여부, 사유메시지)
         """
         if not self.driver:
             return False, ""
 
         try:
-            # 1. 브라우저 Alert 경고창 감지
+            # 1. 브라우저 Alert 경고창 감지 (로그인 필요 안내창 등)
             try:
                 alert = self.driver.switch_to.alert
-                text = alert.text
+                text = (alert.text or "").strip()
                 alert.dismiss()
-                return True, f"로그인 알림 창 발생: '{text}'"
+                if any(k in text.lower() for k in ["로그인", "login", "인증", "권한", "회원"]):
+                    return True, f"로그인 알림 창 발생: '{text}'"
             except Exception:
                 pass
 
-            # 2. 새 팝업 창 발생 여부 감지 (카카오 로그인 팝업 등)
+            # 2. 새 팝업 창 발생 여부 감지 (실제 카카오 로그인 또는 인증 창인지 URL/제목 정밀 검증)
             handles = self.driver.window_handles
-            if len(handles) > 1:
-                detail = "새 팝업 창 열림"
-                if main_window_handle:
-                    for h in handles:
-                        if h != main_window_handle:
+            if len(handles) > 1 and main_window_handle:
+                for h in handles:
+                    if h != main_window_handle:
+                        try:
+                            self.driver.switch_to.window(h)
+                            u = (self.driver.current_url or "").lower()
+                            t = (self.driver.title or "").lower()
+                            is_login_win = any(k in u for k in ["accounts.kakao.com", "kauth.kakao.com", "/signin", "/login"]) or \
+                                           any(k in t for k in ["로그인", "카카오계정", "kakao account", "sign in"])
+                            if is_login_win:
+                                return True, f"카카오 로그인 팝업 창 열림 (URL: {u})"
+                        except Exception:
+                            pass
+                        finally:
                             try:
-                                self.driver.switch_to.window(h)
-                                u = (self.driver.current_url or "").lower()
-                                t = (self.driver.title or "").lower()
-                                detail = f"로그인 팝업 창 열림 (제목: {t}, URL: {u})"
+                                self.driver.switch_to.window(main_window_handle)
                             except Exception:
                                 pass
-                            finally:
-                                try:
-                                    self.driver.switch_to.window(main_window_handle)
-                                except Exception:
-                                    pass
-                return True, detail
 
-            # 3. 로그인 페이지 URL 리다이렉션 감지
+            # 3. 로그인 페이지 URL 리다이렉션 감지 (본문 대신 로그인 페이지로 이동된 경우)
             curr_url = (self.driver.current_url or "").lower()
-            if any(k in curr_url for k in ["accounts.kakao.com", "/signin", "/login"]):
-                return True, f"로그인 페이지로 이동됨 ({curr_url})"
+            if any(k in curr_url for k in ["accounts.kakao.com", "kauth.kakao.com", "/signin", "brunch.co.kr/login"]):
+                return True, f"로그인 페이지로 리다이렉트됨 ({curr_url})"
 
-            # 4. 페이지 내 로그인 모달 레이어 및 iframe 감지
-            login_selectors = [
-                ".wrap_login_modal", ".layer_login", "#loginModal",
-                "div[class*='layer_login']", "div[class*='login_layer']",
-                "div[class*='popup_login']", "div[class*='wrap_login']",
-                "div[class*='modal_login']", "div[id*='login']",
-                "iframe[src*='kakao.com']", "iframe[src*='login']", "iframe[src*='signin']",
-                ".dimmed_layer", "div[class*='dimmed']", "div.layer_action"
+            # 4. 페이지 내 실제 로그인 모달/팝업 레이어 감지
+            # (브런치 Svelte 신규 로그인 모달: div.login_modal, 구형 모달: .layer_login, .wrap_login_modal 등)
+            modal_selectors = [
+                "div.login_modal",
+                "div.login_modal_content",
+                "div[class*='login_modal']",
+                ".wrap_login_modal",
+                ".layer_login",
+                "#loginModal"
             ]
-            for sel in login_selectors:
+            for sel in modal_selectors:
                 try:
                     elems = self.driver.find_elements(By.CSS_SELECTOR, sel)
                     for el in elems:
                         if el.is_displayed():
                             txt = el.text.strip().lower()
-                            if not txt or any(k in txt for k in ["로그인", "카카오", "login", "kakao"]):
-                                return True, "화면에 로그인 팝업 레이어가 감지됨"
+                            # 텍스트가 실제로 로그인 관련 문구를 포함하고 있는지 필수 검증 (빈 텍스트 오탐 방지)
+                            if any(k in txt for k in ["카카오", "로그인", "login", "시작하기", "인증"]):
+                                return True, f"화면에 카카오 로그인 모달 레이어 노출 감지 (선택자: {sel})"
                 except Exception:
                     continue
 
-            # 5. 로그인 안내 텍스트 노출 여부
+            # 5. 로그인 전용 iframe 감지 (accounts.kakao.com 로그인 iframe 등)
+            # ※ play.kakao.com(카카오TV), map.kakao.com(카카오맵) 등 일반 글 콘텐츠는 제외
             try:
-                login_texts = self.driver.find_elements(
-                    By.XPATH,
-                    "//*[contains(text(), '카카오계정으로 로그인') or contains(text(), '카카오로 시작하기') or contains(text(), '로그인 후 이용') or contains(text(), '로그인이 필요')]"
+                login_iframes = self.driver.find_elements(
+                    By.CSS_SELECTOR,
+                    "iframe[src*='accounts.kakao.com'], iframe[src*='kauth.kakao.com'], iframe[src*='/login'], iframe[src*='/signin']"
                 )
-                for lt in login_texts:
-                    if lt.is_displayed():
-                        return True, f"로그인 안내 텍스트 감지 ('{lt.text.strip()}')"
+                for iframe in login_iframes:
+                    if iframe.is_displayed() and iframe.size.get("height", 0) > 100:
+                        return True, "로그인 iframe 레이어 감지"
             except Exception:
                 pass
 

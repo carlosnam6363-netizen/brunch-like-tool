@@ -249,6 +249,26 @@ if st.session_state.articles:
     
     with tab_pend:
         if pending_list:
+            col_m_sel, col_m_btn = st.columns([3, 1])
+            with col_m_sel:
+                selected_articles = st.multiselect(
+                    "선택한 글을 완료 탭으로 이동 (라이킷 완료 처리):",
+                    options=pending_list,
+                    format_func=lambda a: f"[{a.get('source_day_kor') or a.get('source_day', '-')}] {a['article_title']} ({a['user_name']})",
+                    key="sel_manual_articles"
+                )
+            with col_m_btn:
+                st.write("")
+                if st.button("💖 선택 글 완료 탭으로 이동", key="btn_move_to_done"):
+                    if not selected_articles:
+                        st.warning("이동할 글을 먼저 선택해주세요.")
+                    else:
+                        for a in selected_articles:
+                            a["status"] = "좋아요 완료"
+                            st.session_state.completed_keys.add(a["url"])
+                        st.success(f"{len(selected_articles)}건의 글을 [좋아요 완료] 탭으로 이동했습니다!")
+                        st.rerun()
+
             df_rows = [
                 {
                     "#": idx + 1,
