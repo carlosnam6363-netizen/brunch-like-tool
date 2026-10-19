@@ -434,6 +434,25 @@ class BrunchBot:
             if has_login:
                 return "NOT_LOGGED_IN", f"로그인 팝업 창이 감지되었습니다 ({reason}). 동작을 즉시 중단합니다."
 
+            # 클릭 후 하트 버튼 상태 정밀 검증 (좋아요를 누른 글만 정확히 누적되도록 확인)
+            try:
+                is_now_liked = False
+                spans = heart_btn.find_elements(By.CSS_SELECTOR, "span.ico_likeit_unlike, span.ico_likeit_like")
+                if spans:
+                    cls = spans[0].get_attribute("class") or ""
+                    if "ico_likeit_unlike" in cls:
+                        is_now_liked = True
+                else:
+                    attr = heart_btn.get_attribute("data-tiara-custom") or ""
+                    html_c = heart_btn.get_attribute("outerHTML") or ""
+                    if "liketype=dislike" in attr or "ico_likeit_unlike" in html_c:
+                        is_now_liked = True
+
+                if not is_now_liked:
+                    return "ERROR", "좋아요 클릭이 반영되지 않았습니다 (누적 제외)."
+            except Exception:
+                pass
+
             return "LIKED", "우측 상단 하트 좋아요 완료"
 
         except Exception as e:

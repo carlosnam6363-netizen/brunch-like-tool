@@ -278,7 +278,7 @@ class BrunchLikeApp:
 
         self.btn_move_to_done = ttk.Button(
             pending_toolbar,
-            text="💖 선택한 글 완료 탭으로 이동 (라이킷 완료 처리)",
+            text="⏩ 선택한 글 스킵 처리 (완료 탭으로 이동)",
             command=self._move_selected_to_done,
             style="Primary.TButton"
         )
@@ -324,9 +324,12 @@ class BrunchLikeApp:
         self.tree_pending.bind("<Button-1>", self._on_pending_click)
         self.tree_pending.bind("<space>", self._on_pending_space)
 
-        # [탭 2] 좋아요 완료 목록
+        # [탭 2] 좋아요 완료 목록 (실제 좋아요 누른 건만 정확히 집계)
         self.tab_done = ttk.Frame(self.notebook)
-        self.notebook.add(self.tab_done, text=f"💖 좋아요 완료 목록 ({len(self.completed_articles)}건)")
+        init_liked = sum(1 for a in self.completed_articles if a.get("status") == "좋아요 완료")
+        init_skip = sum(1 for a in self.completed_articles if a.get("status") in ("좋아요 스킵", "이미 좋아요됨"))
+        init_title = f"💖 완료 목록 (좋아요: {init_liked:,}건 / 스킵: {init_skip:,}건)" if init_skip > 0 else f"💖 좋아요 완료 목록 ({init_liked:,}건)"
+        self.notebook.add(self.tab_done, text=init_title)
 
         cols_done = ("idx", "day", "title", "author", "magazine", "date", "status", "time")
         self.tree_done = ttk.Treeview(self.tab_done, columns=cols_done, show="headings", selectmode="browse")
@@ -526,7 +529,10 @@ class BrunchLikeApp:
                     art.get("done_time", "-")
                 )
             )
-        self.notebook.tab(1, text=f"💖 좋아요 완료 목록 ({len(self.completed_articles):,}건)")
+        liked_count = sum(1 for a in self.completed_articles if a.get("status") == "좋아요 완료")
+        skip_count = sum(1 for a in self.completed_articles if a.get("status") in ("좋아요 스킵", "이미 좋아요됨"))
+        tab_title = f"💖 완료 목록 (좋아요: {liked_count:,}건 / 스킵: {skip_count:,}건)" if skip_count > 0 else f"💖 좋아요 완료 목록 ({liked_count:,}건)"
+        self.notebook.tab(1, text=tab_title)
 
     def _on_pending_click(self, event):
         """대기 목록 항목 클릭 시 첫 번째 컬럼(체크박스)을 누르면 선택/해제 토글"""
@@ -594,7 +600,7 @@ class BrunchLikeApp:
             self.lbl_selected_count.config(text=f"선택됨: {cnt:,}건")
 
     def _move_selected_to_done(self):
-        """체크박스로 선택한 글들을 '좋아요 완료 목록' 탭으로 즉시 이동합니다."""
+        """체크박스로 선택한 글들을 완료 탭으로 이동(스킵 처리)합니다."""
         if not self.checked_pending_keys:
             messagebox.showwarning("선택 필요", "완료 탭으로 이동할 글을 왼쪽 체크박스(☐)에서 1개 이상 선택해주세요.")
             return
@@ -606,10 +612,10 @@ class BrunchLikeApp:
 
         count = len(to_move)
         confirm = messagebox.askyesno(
-            "완료 탭으로 이동",
-            f"선택한 {count:,}개의 글을 [좋아요 완료 목록]으로 이동하시겠습니까?\n\n"
-            f"- 처리 결과가 '좋아요 완료'로 기록됩니다.\n"
-            f"- 이동된 글은 이후 자동 좋아요 시 중복 처리되지 않습니다."
+            "선택 글 스킵 처리",
+            f"선택한 {count:,}개의 글을 완료 목록으로 이동(스킵)하시겠습니까?\n\n"
+            f"- 실제 좋아요를 누르지 않고 제외하는 건이므로 '좋아요 스킵'으로 기록됩니다.\n"
+            f"- 누적 좋아요 수에는 반영되지 않으며, 자동 좋아요 시 중복 처리되지 않습니다."
         )
         if not confirm:
             return
@@ -620,7 +626,7 @@ class BrunchLikeApp:
             if key not in self.completed_keys:
                 self.completed_keys.add(key)
                 art_copy = dict(art)
-                art_copy["status"] = "좋아요 완료"
+                art_copy["status"] = "좋아요 스킵"
                 art_copy["done_time"] = now_time
                 self.completed_articles.insert(0, art_copy)
 
@@ -634,9 +640,9 @@ class BrunchLikeApp:
         self._refresh_done_tree()
         self._update_daily_stats_display()
 
-        self._log(f"수동 완료 처리: {count:,}건의 글을 '좋아요 완료' 상태로 완료 탭에 이동했습니다.", "SUCCESS")
+        self._log(f"선택 글 스킵: {count:,}건의 글을 '좋아요 스킵' 상태로 완료 탭에 이동했습니다 (누적 좋아요 수 제외).", "INFO")
         self.notebook.select(1)  # 완료 탭으로 이동
-        messagebox.showinfo("이동 완료", f"선택한 {count:,}개의 글이 [좋아요 완료 목록] 탭으로 성공적으로 이동되었습니다!")
+        messagebox.showinfo("이동 완료", f"선택한 {count:,}개의 글이 [좋아요 스킵] 처리되어 완료 탭으로 이동되었습니다.\n(누적 좋아요 수에는 반영되지 않습니다.)")
 
     def _refresh_pending_tree(self):
         """대기 탭 트리를 갱신합니다."""

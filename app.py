@@ -244,29 +244,32 @@ pending_list = [a for a in st.session_state.articles if a["url"] not in st.sessi
 done_list = [a for a in st.session_state.articles if a["url"] in st.session_state.completed_keys or a.get("status") in ("좋아요 완료", "좋아요 스킵", "이미 좋아요됨")]
 
 if st.session_state.articles:
+    done_liked = sum(1 for a in done_list if a.get("status") == "좋아요 완료")
+    done_skipped = sum(1 for a in done_list if a.get("status") in ("좋아요 스킵", "이미 좋아요됨"))
+    tab_done_title = f"💖 완료 목록 (좋아요: {done_liked:,}건 / 스킵: {done_skipped:,}건)" if done_skipped > 0 else f"💖 좋아요 완료 ({done_liked:,}건)"
     st.markdown(f"#### 📑 연재 글 목록 (대기 {len(pending_list):,}건 / 완료 {len(done_list):,}건)")
-    tab_pend, tab_comp = st.tabs([f"📑 대기 중인 글 ({len(pending_list):,}건)", f"💖 좋아요 완료 ({len(done_list):,}건)"])
+    tab_pend, tab_comp = st.tabs([f"📑 대기 중인 글 ({len(pending_list):,}건)", tab_done_title])
     
     with tab_pend:
         if pending_list:
             col_m_sel, col_m_btn = st.columns([3, 1])
             with col_m_sel:
                 selected_articles = st.multiselect(
-                    "선택한 글을 완료 탭으로 이동 (라이킷 완료 처리):",
+                    "선택한 글 스킵 처리 (완료 탭으로 이동):",
                     options=pending_list,
                     format_func=lambda a: f"[{a.get('source_day_kor') or a.get('source_day', '-')}] {a['article_title']} ({a['user_name']})",
                     key="sel_manual_articles"
                 )
             with col_m_btn:
                 st.write("")
-                if st.button("💖 선택 글 완료 탭으로 이동", key="btn_move_to_done"):
+                if st.button("⏩ 선택 글 스킵 처리", key="btn_move_to_done"):
                     if not selected_articles:
                         st.warning("이동할 글을 먼저 선택해주세요.")
                     else:
                         for a in selected_articles:
-                            a["status"] = "좋아요 완료"
+                            a["status"] = "좋아요 스킵"
                             st.session_state.completed_keys.add(a["url"])
-                        st.success(f"{len(selected_articles)}건의 글을 [좋아요 완료] 탭으로 이동했습니다!")
+                        st.success(f"{len(selected_articles)}건의 글을 [좋아요 스킵] 처리하여 완료 탭으로 이동했습니다 (누적 좋아요 수 제외).")
                         st.rerun()
 
             df_rows = [
